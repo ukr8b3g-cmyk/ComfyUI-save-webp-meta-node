@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -478,6 +479,43 @@ def _lora_metadata_hash_by_name(candidates: Iterable[str]) -> str:
     return ""
 
 
+def _lora_file_hash_by_name(candidates: Iterable[str]) -> str:
+    try:
+        lora_dirs = folder_paths.get_folder_paths("loras")
+    except Exception:
+        lora_dirs = []
+
+    candidate_names = {_as_text(candidate) for candidate in candidates if candidate}
+    candidate_bases = {_lora_basename(candidate) for candidate in candidate_names}
+
+    for candidate in candidate_names:
+        try:
+            path = folder_paths.get_full_path("loras", candidate)
+        except Exception:
+            path = None
+        if path and os.path.isfile(path):
+            return _sha256_file(path)
+
+    for lora_dir in lora_dirs:
+        for root, _dirs, files in os.walk(lora_dir):
+            for file_name in files:
+                if os.path.splitext(file_name)[1].lower() not in {".safetensors", ".pt", ".ckpt"}:
+                    continue
+                file_base = _lora_basename(file_name)
+                if file_name not in candidate_names and file_base not in candidate_bases:
+                    continue
+                return _sha256_file(os.path.join(root, file_name))
+    return ""
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _scanner_hash_by_name(scanner: Any, candidates: Iterable[str]) -> str:
     for candidate in candidates:
         try:
@@ -524,6 +562,8 @@ def _lora_hashes_text(loras: str) -> str:
         hash_value = _scanner_hash_by_name(scanner, candidates) if scanner is not None else ""
         if not hash_value:
             hash_value = _lora_metadata_hash_by_name(candidates)
+        if not hash_value:
+            hash_value = _lora_file_hash_by_name(candidates)
         if hash_value:
             hashes[base_name] = hash_value[:10]
     if not hashes:
