@@ -4,7 +4,8 @@ ComfyUI node for saving images with metadata.
 
 License: MIT
 
-![Save WEBP Meta node](images/save-webp-meta-node.png)
+<img src="images/save-webp-meta-node.png" alt="Save WEBP Meta node" width="230" />
+<img src="images/sd-prompt-reader.png" alt="SD Prompt Reader example" width="230" />
 
 ## Overview
 
