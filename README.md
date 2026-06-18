@@ -80,7 +80,7 @@ Metadata storage by format:
 
 For maximum compatibility with SD Prompt Reader and ComfyUI drag-and-drop restore, `png`, `webp`, or `webp_lossless` is recommended.
 
-`avif` metadata is written when the local Pillow build supports AVIF, but some external readers may not read AVIF EXIF metadata.
+`avif` metadata is written when the local Pillow build supports AVIF, but some external readers may not display AVIF files or read AVIF EXIF metadata.
 
 ## Dependencies
 
@@ -153,7 +153,7 @@ Format support depends more on the Python environment and Pillow build than on t
 - `avif`: Requires Pillow with AVIF support.
 
 `avif` support varies the most across OS, Python, and Pillow installation methods.
-Even when metadata is written correctly, some external apps may not read AVIF EXIF metadata.
+Even when metadata is written correctly, some external apps may not display AVIF files or read AVIF EXIF metadata.
 
 ## Main Files
 
@@ -254,7 +254,7 @@ ComfyUI 復元用メタデータには、次の情報が含まれます。
 
 SD Prompt Reader などのプロンプトリーダーと、ComfyUI へのドラッグアンドドロップ復元の両方を重視する場合は、`png`、`webp`、`webp_lossless` の使用を推奨します。
 
-`avif` もメタデータを書き込みますが、Pillow 側の AVIF 対応が必要です。また、外部ビューアやプロンプトリーダーによっては AVIF の EXIF メタデータを読めない場合があります。
+`avif` もメタデータを書き込みますが、Pillow 側の AVIF 対応が必要です。また、外部ビューアやプロンプトリーダーによっては AVIF 画像を表示できない、または AVIF の EXIF メタデータを読めない場合があります。
 
 ## 依存関係
 
@@ -327,7 +327,7 @@ python -m pip install -U Pillow
 - `avif`: Pillow が AVIF に対応している必要があります。
 
 特に `avif` は、OS、Python、Pillow のインストール方法によって対応状況が変わりやすい形式です。
-保存側でメタデータを書き込めても、外部アプリ側が AVIF の EXIF 読み取りに対応していない場合は表示されないことがあります。
+保存側でメタデータを書き込めても、外部アプリ側が AVIF 表示や AVIF の EXIF 読み取りに対応していない場合は表示または読み取りができないことがあります。
 
 ## 主なファイル
 
