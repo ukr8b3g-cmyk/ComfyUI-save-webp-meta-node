@@ -88,6 +88,11 @@ def _as_text(value: Any) -> str:
     return str(value)
 
 
+def _exif_text_bytes(value: Any) -> bytes:
+    text = _as_text(value)
+    return text.encode("utf-8", errors="replace")
+
+
 def _clean_model_name(value: Any) -> str:
     text = _as_text(value).strip()
     if not text:
@@ -1016,9 +1021,9 @@ class SaveWebPMeta:
         if isinstance(extra_pnginfo, dict):
             metadata_items.extend(extra_pnginfo.items())
         for exif_tag, (key, value) in zip(EXIF_TEXT_TAGS, metadata_items):
-            exif_dict["0th"][exif_tag] = f"{key}:{json.dumps(value)}"
+            exif_dict["0th"][exif_tag] = _exif_text_bytes(f"{key}:{json.dumps(value)}")
         exif_dict["Exif"][EXIF_USER_COMMENT] = piexif.helper.UserComment.dump(parameters, encoding="unicode")
-        exif_dict["0th"][EXIF_IMAGE_DESCRIPTION] = parameters
+        exif_dict["0th"][EXIF_IMAGE_DESCRIPTION] = _exif_text_bytes(parameters)
         return piexif.dump(exif_dict)
 
     def _build_pnginfo(self, parameters: str, prompt=None, extra_pnginfo=None) -> PngInfo:
