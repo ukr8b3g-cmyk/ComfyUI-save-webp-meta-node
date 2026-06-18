@@ -17,7 +17,7 @@ Compatible viewers:
 As a bonus, saved images can be dragged into the prompt field of A1111-based Stable Diffusion WebUI tools such as Forge or NEO to recover part of the prompt data.
 Because ComfyUI and A1111-based tools use different samplers, schedulers, and graph structures, the imported result may not be exact.
 
-[Japanese](#japanese)
+[Japanese / 日本語](#japanese)
 
 ## Metadata Compatibility
 
