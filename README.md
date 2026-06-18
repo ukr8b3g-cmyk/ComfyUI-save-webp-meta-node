@@ -11,7 +11,7 @@ This custom node saves ComfyUI-generated images with embedded metadata so they c
 
 Compatible viewers:
 - [receyuki/stable-diffusion-prompt-reader](https://github.com/receyuki/stable-diffusion-prompt-reader)
-- [hbl917070/Tiefsee4](https://github.com/hbl917070/Tiefsee4)
+
 - [zanllp/infinite-image-browsing](https://github.com/zanllp/infinite-image-browsing)
 
 As a bonus, saved images can be dragged into the prompt field of A1111-based Stable Diffusion WebUI tools such as Forge or NEO to recover part of the prompt data.
