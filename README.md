@@ -60,6 +60,42 @@ git clone https://github.com/ukr8b3g-cmyk/ComfyUI-save-webp-meta-node save_webp_
 2. Restart ComfyUI.
 3. Check the node list for `Save WEBP Meta` under `image/save`.
 
+### Install Without Git Clone
+
+You can also install this node without using `git clone`.
+
+Zip install:
+
+1. Open the GitHub repository page.
+2. Click `Code`, then `Download ZIP`.
+3. Extract the ZIP file.
+4. Rename the extracted folder to `save_webp_meta`.
+5. Move it into `ComfyUI/custom_nodes/`.
+6. Restart ComfyUI.
+
+Manual file install:
+
+1. Create `ComfyUI/custom_nodes/save_webp_meta/`.
+2. Copy the repository files into that folder.
+3. Restart ComfyUI.
+
+### Update
+
+If installed with `git clone`, update with:
+
+```bash
+cd /path/to/ComfyUI/custom_nodes/save_webp_meta
+git pull
+```
+
+If installed from a ZIP file or by manual copy:
+
+1. Download the latest repository ZIP.
+2. Extract it.
+3. Replace the old `ComfyUI/custom_nodes/save_webp_meta/` files with the new files.
+4. Keep any personal backup files outside the node folder.
+5. Restart ComfyUI.
+
 ## Supported Formats
 
 - `webp`
@@ -355,6 +391,42 @@ git clone https://github.com/ukr8b3g-cmyk/ComfyUI-save-webp-meta-node save_webp_
 1. `ComfyUI/custom_nodes/save_webp_meta` に配置します。
 2. ComfyUI を再起動します。
 3. ノード一覧の `image/save` に `Save WEBP Meta` が表示されることを確認します。
+
+### git clone を使わないインストール方法
+
+`git clone` を使わずにインストールすることもできます。
+
+ZIP でインストールする場合:
+
+1. GitHub のリポジトリページを開きます。
+2. `Code` から `Download ZIP` を選びます。
+3. ZIP ファイルを展開します。
+4. 展開したフォルダ名を `save_webp_meta` に変更します。
+5. `ComfyUI/custom_nodes/` に移動します。
+6. ComfyUI を再起動します。
+
+手動でファイルを配置する場合:
+
+1. `ComfyUI/custom_nodes/save_webp_meta/` を作成します。
+2. リポジトリ内のファイルをそのフォルダにコピーします。
+3. ComfyUI を再起動します。
+
+### アップデート方法
+
+`git clone` でインストールした場合:
+
+```bash
+cd /path/to/ComfyUI/custom_nodes/save_webp_meta
+git pull
+```
+
+ZIP または手動コピーでインストールした場合:
+
+1. 最新のリポジトリ ZIP をダウンロードします。
+2. ZIP ファイルを展開します。
+3. 古い `ComfyUI/custom_nodes/save_webp_meta/` 内のファイルを新しいファイルで置き換えます。
+4. 個人的なバックアップファイルがある場合は、ノードフォルダの外に置いてください。
+5. ComfyUI を再起動します。
 
 ## 注意事項
 
