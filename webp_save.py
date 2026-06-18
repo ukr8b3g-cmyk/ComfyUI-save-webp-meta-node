@@ -30,6 +30,15 @@ EXIF_IMAGE_DESCRIPTION = piexif.ImageIFD.ImageDescription if piexif else 270
 EXIF_MAKE = piexif.ImageIFD.Make if piexif else 271
 EXIF_MODEL = piexif.ImageIFD.Model if piexif else 272
 A1111_EXIF_BYTES = b"UNICODE\0"
+EXIF_TEXT_TAGS = (
+    piexif.ImageIFD.Make,
+    piexif.ImageIFD.Software,
+    piexif.ImageIFD.Artist,
+    piexif.ImageIFD.Copyright,
+    piexif.ImageIFD.DocumentName,
+    piexif.ImageIFD.DateTime,
+    piexif.ImageIFD.HostComputer,
+) if piexif else (271, 305, 315, 33432, 269, 306, 316)
 
 SAMPLER_MAP = {
     "euler": "Euler",
@@ -148,6 +157,86 @@ def _first_node(prompt: Any, class_names: Iterable[str]) -> Optional[Dict[str, A
         if isinstance(node, dict) and node.get("class_type") in names:
             return node
     return None
+
+
+def _prompt_linked_node(prompt: Any, value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(prompt, dict) or not isinstance(value, (list, tuple)) or not value:
+        return None
+    node = prompt.get(str(value[0]))
+    return node if isinstance(node, dict) else None
+
+
+def _prompt_node_title(node: Dict[str, Any]) -> str:
+    meta = node.get("_meta")
+    if isinstance(meta, dict):
+        return _as_text(meta.get("title"))
+    return ""
+
+
+def _prompt_resolve_text(prompt: Any, node: Optional[Dict[str, Any]], seen: Optional[set[int]] = None) -> str:
+    if not isinstance(prompt, dict) or not isinstance(node, dict):
+        return ""
+    if seen is None:
+        seen = set()
+    marker = id(node)
+    if marker in seen:
+        return ""
+    seen.add(marker)
+
+    inputs = _node_inputs(node)
+    text_value = inputs.get("text")
+    if isinstance(text_value, str):
+        return text_value
+    linked = _prompt_linked_node(prompt, text_value)
+    if linked is not None:
+        text = _prompt_resolve_text(prompt, linked, seen)
+        if text.strip():
+            return text
+
+    if node.get("class_type") == "StringConcatenate":
+        parts = []
+        delimiter = inputs.get("delimiter", "")
+        if not isinstance(delimiter, str):
+            delimiter = ""
+        for input_name in ("string_a", "string_b"):
+            value = inputs.get(input_name)
+            linked = _prompt_linked_node(prompt, value)
+            text = _prompt_resolve_text(prompt, linked, seen) if linked is not None else value
+            if isinstance(text, str) and text.strip():
+                parts.append(text)
+        return delimiter.join(parts)
+
+    for input_name in ("value", "string", "prompt"):
+        value = inputs.get(input_name)
+        if isinstance(value, str):
+            return value
+        linked = _prompt_linked_node(prompt, value)
+        if linked is not None:
+            text = _prompt_resolve_text(prompt, linked, seen)
+            if text.strip():
+                return text
+    return ""
+
+
+def _prompt_text_node(prompt: Any, negative: bool) -> str:
+    sampler = _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
+    if sampler:
+        linked = _prompt_linked_node(prompt, _node_inputs(sampler).get("negative" if negative else "positive"))
+        text = _prompt_resolve_text(prompt, linked)
+        if text.strip():
+            return text
+
+    for node in prompt.values() if isinstance(prompt, dict) else []:
+        if not isinstance(node, dict) or node.get("class_type") != "CLIPTextEncode":
+            continue
+        title = _prompt_node_title(node)
+        is_negative = "negative" in title.lower()
+        if is_negative != negative:
+            continue
+        text = _prompt_resolve_text(prompt, node)
+        if text.strip():
+            return text
+    return ""
 
 
 def _graph_nodes(workflow: Any) -> list[Dict[str, Any]]:
@@ -730,6 +819,13 @@ class SaveWebPMeta:
         if emphasis_mode is not None:
             info["emphasis_mode"] = emphasis_mode
 
+        positive = _prompt_text_node(prompt, negative=False)
+        negative = _prompt_text_node(prompt, negative=True)
+        if positive:
+            info["prompt"] = positive
+        if negative:
+            info["negative_prompt"] = negative
+
         return info
 
     def _metadata_from_workflow(self, workflow: Any) -> Dict[str, Any]:
@@ -914,13 +1010,13 @@ class SaveWebPMeta:
         if piexif is None:
             raise RuntimeError("piexif is required to write WebP EXIF metadata")
         exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}}
+        metadata_items = []
+        if prompt is not None:
+            metadata_items.append(("prompt", prompt))
         if isinstance(extra_pnginfo, dict):
-            exif_tag = EXIF_MAKE
-            for key, value in extra_pnginfo.items():
-                if exif_tag in (EXIF_IMAGE_DESCRIPTION, EXIF_MODEL):
-                    exif_tag -= 1
-                exif_dict["0th"][exif_tag] = f"{key}:{json.dumps(value)}"
-                exif_tag -= 1
+            metadata_items.extend(extra_pnginfo.items())
+        for exif_tag, (key, value) in zip(EXIF_TEXT_TAGS, metadata_items):
+            exif_dict["0th"][exif_tag] = f"{key}:{json.dumps(value)}"
         exif_dict["Exif"][EXIF_USER_COMMENT] = piexif.helper.UserComment.dump(parameters, encoding="unicode")
         exif_dict["0th"][EXIF_IMAGE_DESCRIPTION] = parameters
         return piexif.dump(exif_dict)
