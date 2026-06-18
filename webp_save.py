@@ -691,7 +691,7 @@ class SaveWebPMeta:
                 "images": ("IMAGE",),
                 "filename_prefix": ("STRING", {"default": "comfy_%model%_%date%"}),
                 "file_format": (["webp", "webp_lossless", "png", "jpg", "avif"], {"default": "webp"}),
-                "quality": ("INT", {"default": 80, "min": 1, "max": 100}),
+                "quality": ("INT", {"default": 70, "min": 1, "max": 100}),
             },
             "hidden": {
                 "id": "UNIQUE_ID",
@@ -1032,7 +1032,7 @@ class SaveWebPMeta:
                 metadata.add_text(key, json.dumps(value))
         return metadata
 
-    def save_webp(self, images, filename_prefix="ComfyUI", file_format="webp", quality=80, id=None, prompt=None, extra_pnginfo=None, **kwargs):
+    def save_webp(self, images, filename_prefix="ComfyUI", file_format="webp", quality=70, id=None, prompt=None, extra_pnginfo=None, **kwargs):
         info = self._extract_metadata(prompt=prompt, extra_pnginfo=extra_pnginfo, id=id)
         filename_prefix = self._format_filename(filename_prefix or "ComfyUI", info, prompt=prompt, extra_pnginfo=extra_pnginfo)
         file_format = _as_text(file_format).strip().lower()
@@ -1053,7 +1053,7 @@ class SaveWebPMeta:
         width = _as_int(info.get("width", images[0].shape[1]), images[0].shape[1])
         height = _as_int(info.get("height", images[0].shape[0]), images[0].shape[0])
         parameters = self._build_a1111_parameters(info, width, height)
-        webp_quality = max(1, min(100, _as_int(quality, 80)))
+        webp_quality = max(1, min(100, _as_int(quality, 70)))
 
         saved = []
         for i, image_tensor in enumerate(images):

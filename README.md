@@ -203,9 +203,10 @@ Even when metadata is written correctly, some external apps may not display AVIF
 
 - `filename_prefix`: `comfy_%model%_%date%`
 - `file_format`: `webp`
-- `quality`: `80`
+- `quality`: `70`
 
 These defaults favor ComfyUI metadata viewers and keep the saved file name compact by default.
+You can still change `quality` manually in the node for each workflow or run.
 
 ## Filename Patterns
 
@@ -377,9 +378,10 @@ python -m pip install -U Pillow
 
 - `filename_prefix`: `comfy_%model%_%date%`
 - `file_format`: `webp`
-- `quality`: `80`
+- `quality`: `70`
 
 これらの初期値は、ComfyUI 側のメタデータ閲覧を想定しつつ、ファイル名が長くなりすぎないようにしています。
+`quality` は各ワークフローや実行時にノード上で手動変更できます。
 
 ## インストール
 
