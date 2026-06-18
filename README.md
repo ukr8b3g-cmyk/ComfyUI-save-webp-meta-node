@@ -3,7 +3,7 @@
 ComfyUI node for saving images with metadata.
 
 <img src="images/save-webp-meta-node.png" alt="Save WEBP Meta node" width="230" />
-<img width="1266" height="853" alt="Clip_3" src="https://github.com/user-attachments/assets/5f21803f-2f99-4719-8c02-357f817a41e4" />
+<img src="https://github.com/user-attachments/assets/5f21803f-2f99-4719-8c02-357f817a41e4" width="230" />
 
 ## Overview
 
