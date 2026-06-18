@@ -104,6 +104,43 @@ Check format support:
 python -c "from PIL import features; print('webp', features.check('webp')); print('avif', features.check('avif')); import piexif; print('piexif ok')"
 ```
 
+## Dependency Troubleshooting
+
+In most ComfyUI environments, Pillow, numpy, and torch are already installed.
+If metadata saving fails, check the optional or format-specific dependencies first.
+
+Check dependencies:
+
+```bash
+python -c "from PIL import features; import piexif; print('webp', features.check('webp')); print('avif', features.check('avif')); print('piexif ok')"
+```
+
+If `piexif` is missing:
+
+```bash
+python -m pip install piexif
+```
+
+If `webp` is `False`, install or update Pillow in the ComfyUI Python environment:
+
+```bash
+python -m pip install -U Pillow
+```
+
+If `avif` is `False`, your Pillow build does not support AVIF.
+Possible fixes:
+
+- Update Pillow.
+- Use another Python environment where Pillow was built with AVIF support.
+- Use `png`, `webp`, `webp_lossless`, or `jpg` instead.
+
+If metadata is written but not shown in an external app:
+
+- Test the same workflow with `png`.
+- Check whether the reader supports EXIF for that format.
+- Avoid image optimizers, editors, social media sites, and upload services that strip metadata.
+- For maximum compatibility, use `png` or `webp_lossless`.
+
 ## OS and Environment Notes
 
 This node is intended to work on Windows, Linux, and macOS ComfyUI environments.
@@ -240,6 +277,43 @@ python -m pip install piexif
 ```bash
 python -c "from PIL import features; print('webp', features.check('webp')); print('avif', features.check('avif')); import piexif; print('piexif ok')"
 ```
+
+## 依存関係のトラブル対処
+
+多くの ComfyUI 環境では、Pillow、numpy、torch はすでに入っています。
+メタデータ保存に問題がある場合は、まずオプション依存関係や形式ごとの対応状況を確認してください。
+
+依存関係の確認:
+
+```bash
+python -c "from PIL import features; import piexif; print('webp', features.check('webp')); print('avif', features.check('avif')); print('piexif ok')"
+```
+
+`piexif` がない場合:
+
+```bash
+python -m pip install piexif
+```
+
+`webp` が `False` の場合は、ComfyUI の Python 環境で Pillow を更新してください。
+
+```bash
+python -m pip install -U Pillow
+```
+
+`avif` が `False` の場合は、その Pillow ビルドが AVIF に対応していません。
+対処法:
+
+- Pillow を更新する
+- AVIF 対応の Pillow が使える別の Python 環境を使う
+- `png`、`webp`、`webp_lossless`、`jpg` のいずれかを使う
+
+メタデータは書き込まれているのに外部アプリで表示されない場合:
+
+- 同じワークフローを `png` で試す
+- そのリーダーが対象形式の EXIF を読めるか確認する
+- メタデータを削除する画像編集ソフト、最適化ツール、SNS、アップロードサービスを避ける
+- 互換性を重視する場合は `png` または `webp_lossless` を使う
 
 ## OS と環境依存
 
