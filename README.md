@@ -10,7 +10,7 @@ ComfyUI node for saving images with metadata.
 This custom node saves ComfyUI-generated images with embedded metadata so they can be viewed in prompt viewers such as SD Prompt Reader, Tiefsee, and Infinite Image Browsing.
 
 Compatible viewers:
-- [https://civitai.com/models/2712047/ez-prompt-viewer](https://civitai.com/models/2712047/ez-prompt-viewer)
+- [[https://civitai.com/models/2712047/ez-prompt-viewer](https://github.com/ukr8b3g-cmyk/EZ-Prompt-Viewer)](https://github.com/ukr8b3g-cmyk/EZ-Prompt-Viewer)
 - [receyuki/stable-diffusion-prompt-reader](https://github.com/receyuki/stable-diffusion-prompt-reader)
 
 - [zanllp/infinite-image-browsing](https://github.com/zanllp/infinite-image-browsing)
