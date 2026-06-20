@@ -11,6 +11,8 @@ This custom node saves ComfyUI-generated images with embedded metadata so they c
 
 Compatible viewers:
 - [https://github.com/ukr8b3g-cmyk/EZ-Prompt-Viewer](https://github.com/ukr8b3g-cmyk/EZ-Prompt-Viewer)
+
+- [https://github.com/receyuki/stable-diffusion-prompt-reader](https://github.com/receyuki/stable-diffusion-prompt-reader)
 - [receyuki/stable-diffusion-prompt-reader](https://github.com/receyuki/stable-diffusion-prompt-reader)
 - [zanllp/infinite-image-browsing](https://github.com/zanllp/infinite-image-browsing)
 
