@@ -178,6 +178,20 @@ def _prompt_node_title(node: Dict[str, Any]) -> str:
     return ""
 
 
+ANIMA_REGIONAL_TYPES = {"AnimaRegionalCanvas"}
+ANIMA_REGION_PROMPTS = ("red_prompt", "blue_prompt", "yellow_prompt", "green_prompt", "magenta_prompt")
+
+
+def _anima_prompt_from_inputs(inputs: Dict[str, Any], negative: bool) -> str:
+    if negative:
+        return _as_text(inputs.get("negative_prompt", "")).strip()
+    quality = _as_text(inputs.get("quality_prompt", "") or inputs.get("base_prompt", "")).strip()
+    scene = _as_text(inputs.get("scene_prompt", "")).strip()
+    parts = [quality, scene]
+    parts.extend(_as_text(inputs.get(name, "")).strip() for name in ANIMA_REGION_PROMPTS)
+    return "\n\n".join(part for part in parts if part)
+
+
 def _prompt_resolve_text(prompt: Any, node: Optional[Dict[str, Any]], seen: Optional[set[int]] = None) -> str:
     if not isinstance(prompt, dict) or not isinstance(node, dict):
         return ""
@@ -189,6 +203,9 @@ def _prompt_resolve_text(prompt: Any, node: Optional[Dict[str, Any]], seen: Opti
     seen.add(marker)
 
     inputs = _node_inputs(node)
+    if node.get("class_type") in ANIMA_REGIONAL_TYPES:
+        return _anima_prompt_from_inputs(inputs, negative=False)
+
     text_value = inputs.get("text")
     if isinstance(text_value, str):
         return text_value
@@ -227,6 +244,10 @@ def _prompt_text_node(prompt: Any, negative: bool) -> str:
     sampler = _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
     if sampler:
         linked = _prompt_linked_node(prompt, _node_inputs(sampler).get("negative" if negative else "positive"))
+        if isinstance(linked, dict) and linked.get("class_type") in ANIMA_REGIONAL_TYPES:
+            text = _anima_prompt_from_inputs(_node_inputs(linked), negative=negative)
+            if text.strip():
+                return text
         text = _prompt_resolve_text(prompt, linked)
         if text.strip():
             return text
@@ -286,6 +307,31 @@ def _graph_widget_value(node: Optional[Dict[str, Any]], input_names: Iterable[st
             return values[widget_index]
         widget_index += 1
     return None
+
+
+def _graph_anima_prompt(node: Optional[Dict[str, Any]], negative: bool) -> str:
+    if not isinstance(node, dict) or node.get("type") not in ANIMA_REGIONAL_TYPES:
+        return ""
+    props = node.get("properties")
+    saved = props.get("animaPrompts") if isinstance(props, dict) else None
+    if isinstance(saved, dict):
+        if negative:
+            return _as_text(saved.get("negative_prompt", "")).strip()
+        quality = _as_text(saved.get("quality_prompt", "") or saved.get("base_prompt", "")).strip()
+        scene = _as_text(saved.get("scene_prompt", "")).strip()
+        parts = [quality, scene]
+        parts.extend(_as_text(saved.get(name, "")).strip() for name in ANIMA_REGION_PROMPTS)
+        text = "\n\n".join(part for part in parts if part)
+        if text.strip():
+            return text
+
+    values = _graph_values(node)
+    if negative:
+        if len(values) > 12:
+            return _as_text(values[12]).strip()
+        return _as_text(values[11] if len(values) > 11 else "").strip()
+    indexes = (5, 6, 7, 8, 9, 10, 11) if len(values) > 12 else (5, 6, 7, 8, 9, 10)
+    return "\n\n".join(_as_text(values[index]).strip() for index in indexes if len(values) > index and _as_text(values[index]).strip())
 
 
 def _graph_node_names(node: Dict[str, Any]) -> set[str]:
@@ -453,6 +499,12 @@ def _graph_resolve_string(node: Optional[Dict[str, Any]], node_map: Dict[int, Di
 def _graph_text_node(workflow: Any, nodes: list[Dict[str, Any]], negative: bool) -> str:
     node_map = _graph_node_map(nodes)
     link_sources = _graph_link_sources(workflow)
+    for node in nodes:
+        if node.get("type") in ANIMA_REGIONAL_TYPES:
+            text = _graph_anima_prompt(node, negative=negative)
+            if text.strip():
+                return text
+
     # Prefer titled negative CLIP nodes for negative prompt, and non-negative CLIP nodes for prompt.
     for node in nodes:
         if node.get("type") != "CLIPTextEncode":
@@ -772,6 +824,14 @@ class SaveWebPMeta:
                 info["width"] = inputs["width"]
             if "height" in inputs:
                 info["height"] = inputs["height"]
+        if "width" not in info or "height" not in info:
+            anima = _first_node(prompt, ANIMA_REGIONAL_TYPES)
+            if anima:
+                inputs = _node_inputs(anima)
+                if "width" in inputs:
+                    info["width"] = inputs["width"]
+                if "height" in inputs:
+                    info["height"] = inputs["height"]
 
         ckpt = _first_node(prompt, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
         if ckpt:
@@ -859,6 +919,13 @@ class SaveWebPMeta:
             info["width"] = values[0]
         if len(values) >= 2:
             info["height"] = values[1]
+        if "width" not in info or "height" not in info:
+            anima = _graph_first(nodes, ANIMA_REGIONAL_TYPES)
+            values = _graph_values(anima)
+            if len(values) >= 1:
+                info["width"] = values[0]
+            if len(values) >= 2:
+                info["height"] = values[1]
 
         ckpt = _graph_first(nodes, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
         values = _graph_values(ckpt)
