@@ -1080,7 +1080,10 @@ class SaveWebPMeta:
 
     def _build_exif(self, parameters: str, prompt=None, extra_pnginfo=None) -> bytes:
         if piexif is None:
-            raise RuntimeError("piexif is required to write WebP EXIF metadata")
+            raise RuntimeError(
+                "piexif is required to write WebP EXIF metadata. "
+                "Install it in the active ComfyUI Python environment with: python -m pip install piexif"
+            )
         exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}}
         metadata_items = []
         if prompt is not None:

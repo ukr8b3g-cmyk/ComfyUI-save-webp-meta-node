@@ -21,6 +21,11 @@ Because ComfyUI and A1111-based tools use different samplers, schedulers, and gr
 
 [Japanese / 日本語](#japanese)
 
+## Recent Change
+
+- Added `piexif>=1.1.3` to `pyproject.toml` so package-based installs can include the EXIF dependency automatically.
+- The missing-`piexif` runtime error now shows the install command for the active ComfyUI Python environment.
+
 ## Metadata Compatibility
 
 `Save WEBP Meta` writes two kinds of metadata:
@@ -247,6 +252,11 @@ SD Prompt Reader、Tiefsee、Infinite Image Browsing などのプロンプトビ
 
 A1111 系の Stable Diffusion WebUI、Forge、NEO などでは、保存画像から一部の生成パラメータを読み取れる場合があります。
 ComfyUI と A1111 系ではサンプラー、スケジューラー、ノード構造が異なるため、完全に同じ結果を再現できるとは限りません。
+
+## 最近の変更
+
+- `pyproject.toml` に `piexif>=1.1.3` を追加し、インストール時に EXIF 用依存関係が入りやすくなりました。
+- `piexif` 未導入時のエラーに、ComfyUI の Python 環境へ入れるためのコマンドを表示するようにしました。
 
 ## メタデータ互換性
 
