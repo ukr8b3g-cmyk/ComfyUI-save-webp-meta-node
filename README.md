@@ -53,6 +53,11 @@ ComfyUI restore metadata includes:
 
 ## Installation
 
+Search for "Save WEBP Meta" in ComfyUI Manager.
+<img width="1009" height="209" alt="1782109385-gYfI3MLQbFzCJqK51dVHnopE" src="https://github.com/user-attachments/assets/3c608696-fe24-4ee5-811f-fb2fa6ad5408" />
+
+or
+
 ```bash
 cd /path/to/ComfyUI/custom_nodes
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-save-webp-meta-node save_webp_meta
