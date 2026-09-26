@@ -164,10 +164,26 @@ def _first_node(prompt: Any, class_names: Iterable[str]) -> Optional[Dict[str, A
     return None
 
 
-def _prompt_linked_node(prompt: Any, value: Any) -> Optional[Dict[str, Any]]:
-    if not isinstance(prompt, dict) or not isinstance(value, (list, tuple)) or not value:
+def _prompt_ref(value: Any) -> Optional[tuple[str, int]]:
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
         return None
-    node = prompt.get(str(value[0]))
+    node_id = _as_text(value[0]).strip()
+    if not node_id:
+        return None
+    try:
+        output_slot = int(value[1])
+    except Exception:
+        return None
+    return node_id, output_slot
+
+
+def _prompt_linked_node(prompt: Any, value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(prompt, dict):
+        return None
+    ref = _prompt_ref(value)
+    if ref is None:
+        return None
+    node = prompt.get(ref[0])
     return node if isinstance(node, dict) else None
 
 
@@ -192,65 +208,152 @@ def _anima_prompt_from_inputs(inputs: Dict[str, Any], negative: bool) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
-def _prompt_resolve_text(prompt: Any, node: Optional[Dict[str, Any]], seen: Optional[set[int]] = None) -> str:
-    if not isinstance(prompt, dict) or not isinstance(node, dict):
-        return ""
+def _prompt_resolve_input(
+    prompt: Any,
+    value: Any,
+    negative: bool,
+    seen: set[tuple[str, int, bool]],
+) -> tuple[bool, str]:
+    if isinstance(value, str):
+        return True, value
+    ref = _prompt_ref(value)
+    if ref is None:
+        return False, ""
+    return _prompt_resolve_ref(prompt, value, negative=negative, seen=seen)
+
+
+def _prompt_resolve_ref(
+    prompt: Any,
+    value: Any,
+    negative: bool,
+    seen: Optional[set[tuple[str, int, bool]]] = None,
+) -> tuple[bool, str]:
+    if not isinstance(prompt, dict):
+        return False, ""
+    ref = _prompt_ref(value)
+    if ref is None:
+        return False, ""
+    marker = (ref[0], ref[1], bool(negative))
     if seen is None:
         seen = set()
-    marker = id(node)
     if marker in seen:
-        return ""
-    seen.add(marker)
+        return False, ""
+    next_seen = set(seen)
+    next_seen.add(marker)
+    node = prompt.get(ref[0])
+    if not isinstance(node, dict):
+        return False, ""
+    return _prompt_resolve_node(
+        prompt,
+        node,
+        output_slot=ref[1],
+        negative=negative,
+        seen=next_seen,
+    )
 
+
+def _prompt_resolve_node(
+    prompt: Any,
+    node: Dict[str, Any],
+    output_slot: int,
+    negative: bool,
+    seen: set[tuple[str, int, bool]],
+) -> tuple[bool, str]:
     inputs = _node_inputs(node)
-    if node.get("class_type") in ANIMA_REGIONAL_TYPES:
-        return _anima_prompt_from_inputs(inputs, negative=False)
+    class_type = _as_text(node.get("class_type"))
 
-    text_value = inputs.get("text")
-    if isinstance(text_value, str):
-        return text_value
-    linked = _prompt_linked_node(prompt, text_value)
-    if linked is not None:
-        text = _prompt_resolve_text(prompt, linked, seen)
-        if text.strip():
-            return text
+    if class_type in ANIMA_REGIONAL_TYPES:
+        return True, _anima_prompt_from_inputs(inputs, negative=negative)
 
-    if node.get("class_type") == "StringConcatenate":
+    if class_type == "ConditioningZeroOut":
+        return True, ""
+
+    has_prompt = "prompt" in inputs
+    has_negative_prompt = "negative_prompt" in inputs
+    if has_prompt and has_negative_prompt:
+        input_name = "negative_prompt" if output_slot == 1 else "prompt"
+        return _prompt_resolve_input(prompt, inputs.get(input_name), negative=negative, seen=seen)
+
+    if negative and has_negative_prompt:
+        resolved = _prompt_resolve_input(prompt, inputs.get("negative_prompt"), negative=True, seen=seen)
+        if resolved[0]:
+            return resolved
+    if not negative and has_prompt:
+        resolved = _prompt_resolve_input(prompt, inputs.get("prompt"), negative=False, seen=seen)
+        if resolved[0]:
+            return resolved
+
+    if class_type == "StringConcatenate":
         parts = []
         delimiter = inputs.get("delimiter", "")
         if not isinstance(delimiter, str):
             delimiter = ""
+        found = False
         for input_name in ("string_a", "string_b"):
-            value = inputs.get(input_name)
-            linked = _prompt_linked_node(prompt, value)
-            text = _prompt_resolve_text(prompt, linked, seen) if linked is not None else value
-            if isinstance(text, str) and text.strip():
-                parts.append(text)
-        return delimiter.join(parts)
-
-    for input_name in ("value", "string", "prompt"):
-        value = inputs.get(input_name)
-        if isinstance(value, str):
-            return value
-        linked = _prompt_linked_node(prompt, value)
-        if linked is not None:
-            text = _prompt_resolve_text(prompt, linked, seen)
+            resolved, text = _prompt_resolve_input(
+                prompt,
+                inputs.get(input_name),
+                negative=negative,
+                seen=seen,
+            )
+            if resolved:
+                found = True
             if text.strip():
-                return text
-    return ""
+                parts.append(text)
+        return (found, delimiter.join(parts)) if found else (False, "")
+
+    if "text" in inputs:
+        resolved = _prompt_resolve_input(prompt, inputs.get("text"), negative=negative, seen=seen)
+        if resolved[0]:
+            return resolved
+
+    candidates = (
+        ("negative", "prompt", "value", "string")
+        if negative
+        else ("positive", "prompt", "value", "string")
+    )
+    for input_name in candidates:
+        if input_name not in inputs:
+            continue
+        resolved = _prompt_resolve_input(prompt, inputs.get(input_name), negative=negative, seen=seen)
+        if resolved[0]:
+            return resolved
+
+    for input_name, value in inputs.items():
+        if not re.search(r"(conditioning|positive|negative|prompt|text|string|value)", str(input_name), re.I):
+            continue
+        resolved = _prompt_resolve_input(prompt, value, negative=negative, seen=seen)
+        if resolved[0]:
+            return resolved
+    return False, ""
 
 
-def _prompt_text_node(prompt: Any, negative: bool) -> str:
+def _prompt_resolve_text(
+    prompt: Any,
+    node: Optional[Dict[str, Any]],
+    seen: Optional[set[int]] = None,
+) -> str:
+    # Legacy wrapper retained for callers that only need text.
+    if not isinstance(node, dict):
+        return ""
+    resolved, text = _prompt_resolve_node(
+        prompt,
+        node,
+        output_slot=0,
+        negative=False,
+        seen=set(),
+    )
+    return text if resolved else ""
+
+
+def _prompt_text_node_result(prompt: Any, negative: bool) -> tuple[bool, str]:
     sampler = _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
     if sampler:
-        linked = _prompt_linked_node(prompt, _node_inputs(sampler).get("negative" if negative else "positive"))
-        if isinstance(linked, dict) and linked.get("class_type") in ANIMA_REGIONAL_TYPES:
-            text = _anima_prompt_from_inputs(_node_inputs(linked), negative=negative)
-            if text.strip():
-                return text
-        text = _prompt_resolve_text(prompt, linked)
-        if text.strip():
-            return text
+        inputs = _node_inputs(sampler)
+        value = inputs.get("negative" if negative else "positive")
+        resolved, text = _prompt_resolve_ref(prompt, value, negative=negative)
+        if resolved:
+            return True, text
 
     for node in prompt.values() if isinstance(prompt, dict) else []:
         if not isinstance(node, dict) or node.get("class_type") != "CLIPTextEncode":
@@ -259,11 +362,20 @@ def _prompt_text_node(prompt: Any, negative: bool) -> str:
         is_negative = "negative" in title.lower()
         if is_negative != negative:
             continue
-        text = _prompt_resolve_text(prompt, node)
-        if text.strip():
-            return text
-    return ""
+        resolved, text = _prompt_resolve_node(
+            prompt,
+            node,
+            output_slot=0,
+            negative=negative,
+            seen=set(),
+        )
+        if resolved:
+            return True, text
+    return False, ""
 
+
+def _prompt_text_node(prompt: Any, negative: bool) -> str:
+    return _prompt_text_node_result(prompt, negative=negative)[1]
 
 def _graph_nodes(workflow: Any) -> list[Dict[str, Any]]:
     if not isinstance(workflow, dict):
@@ -884,11 +996,11 @@ class SaveWebPMeta:
         if emphasis_mode is not None:
             info["emphasis_mode"] = emphasis_mode
 
-        positive = _prompt_text_node(prompt, negative=False)
-        negative = _prompt_text_node(prompt, negative=True)
-        if positive:
+        positive_resolved, positive = _prompt_text_node_result(prompt, negative=False)
+        negative_resolved, negative = _prompt_text_node_result(prompt, negative=True)
+        if positive_resolved:
             info["prompt"] = positive
-        if negative:
+        if negative_resolved:
             info["negative_prompt"] = negative
 
         return info
@@ -1021,9 +1133,9 @@ class SaveWebPMeta:
         # SaveImageLM-style: accept hidden id/prompt/extra_pnginfo, but only use structured data.
         # Never use id as metadata text; it is only a runtime key.
         info: Dict[str, Any] = {}
-        info.update(self._metadata_from_prompt(prompt))
         if isinstance(extra_pnginfo, dict):
             info.update(self._metadata_from_workflow(extra_pnginfo.get("workflow")))
+        info.update(self._metadata_from_prompt(prompt))
         return info
 
     def _build_a1111_parameters(self, info: Dict[str, Any], width: int, height: int) -> str:
