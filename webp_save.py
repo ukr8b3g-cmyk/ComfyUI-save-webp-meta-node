@@ -268,6 +268,14 @@ def _prompt_resolve_node(
     if class_type == "ConditioningZeroOut":
         return True, ""
 
+    if class_type == "ComfySwitchNode":
+        active = inputs.get("on_true") if _prompt_switch_enabled(inputs.get("switch")) else inputs.get("on_false")
+        resolved = _prompt_resolve_input(prompt, active, negative=negative, seen=seen)
+        if resolved[0]:
+            return resolved
+        fallback = inputs.get("on_false") if _prompt_switch_enabled(inputs.get("switch")) else inputs.get("on_true")
+        return _prompt_resolve_input(prompt, fallback, negative=negative, seen=seen)
+
     has_prompt = "prompt" in inputs
     has_negative_prompt = "negative_prompt" in inputs
     if has_prompt and has_negative_prompt:
@@ -376,6 +384,326 @@ def _prompt_text_node_result(prompt: Any, negative: bool) -> tuple[bool, str]:
 
 def _prompt_text_node(prompt: Any, negative: bool) -> str:
     return _prompt_text_node_result(prompt, negative=negative)[1]
+
+
+def _prompt_switch_enabled(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = _as_text(value).strip().lower()
+    if text in {"true", "on", "yes", "1"}:
+        return True
+    if text in {"false", "off", "no", "0", ""}:
+        return False
+    return bool(value)
+
+
+def _prompt_find_upstream(
+    prompt: Any,
+    value: Any,
+    predicate,
+    seen: Optional[set[tuple[str, int]]] = None,
+) -> Optional[tuple[str, Dict[str, Any], int]]:
+    if not isinstance(prompt, dict):
+        return None
+    ref = _prompt_ref(value)
+    if ref is None:
+        return None
+    if seen is None:
+        seen = set()
+    marker = (ref[0], ref[1])
+    if marker in seen:
+        return None
+    next_seen = set(seen)
+    next_seen.add(marker)
+
+    node = prompt.get(ref[0])
+    if not isinstance(node, dict):
+        return None
+    if predicate(node):
+        return ref[0], node, ref[1]
+
+    inputs = _node_inputs(node)
+    class_type = _as_text(node.get("class_type"))
+    if class_type == "ComfySwitchNode":
+        active = inputs.get("on_true") if _prompt_switch_enabled(inputs.get("switch")) else inputs.get("on_false")
+        hit = _prompt_find_upstream(prompt, active, predicate, next_seen)
+        if hit is not None:
+            return hit
+
+    preferred = (
+        "images",
+        "image",
+        "samples",
+        "latent",
+        "latent_image",
+        "conditioning",
+        "positive",
+        "negative",
+        "model",
+        "clip",
+        "vae",
+    )
+    for input_name in preferred:
+        if input_name not in inputs:
+            continue
+        hit = _prompt_find_upstream(prompt, inputs.get(input_name), predicate, next_seen)
+        if hit is not None:
+            return hit
+    for input_value in inputs.values():
+        if _prompt_ref(input_value) is None:
+            continue
+        hit = _prompt_find_upstream(prompt, input_value, predicate, next_seen)
+        if hit is not None:
+            return hit
+    return None
+
+
+def _prompt_active_sampler(prompt: Any, save_node_id: Any = None) -> Optional[tuple[str, Dict[str, Any]]]:
+    if not isinstance(prompt, dict):
+        return None
+    candidate_ids = []
+    if save_node_id is not None:
+        candidate_ids.append(_as_text(save_node_id))
+    candidate_ids.extend(
+        node_id
+        for node_id, node in prompt.items()
+        if isinstance(node, dict) and node.get("class_type") == "SaveWebPMeta"
+    )
+    seen_ids = set()
+    for node_id in candidate_ids:
+        if node_id in seen_ids:
+            continue
+        seen_ids.add(node_id)
+        save_node = prompt.get(node_id)
+        if not isinstance(save_node, dict):
+            continue
+        hit = _prompt_find_upstream(
+            prompt,
+            _node_inputs(save_node).get("images"),
+            lambda node: node.get("class_type") in {"KSampler", "KSamplerAdvanced"},
+        )
+        if hit is not None:
+            return hit[0], hit[1]
+
+    for node_id, node in prompt.items():
+        if isinstance(node, dict) and node.get("class_type") in {"KSampler", "KSamplerAdvanced"}:
+            return _as_text(node_id), node
+    return None
+
+
+def _prompt_resolution_selector_value(node: Dict[str, Any], output_slot: int) -> Optional[int]:
+    inputs = _node_inputs(node)
+    aspect = _as_text(inputs.get("aspect_ratio")).strip()
+    match = re.search(r"(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)", aspect)
+    try:
+        megapixels = float(inputs.get("megapixels"))
+    except Exception:
+        megapixels = 0.0
+    multiple = max(1, _as_int(inputs.get("multiple"), 1))
+    if not match or megapixels <= 0:
+        return None
+    ratio = float(match.group(1)) / float(match.group(2))
+    pixels = megapixels * 1024 * 1024
+    raw_width = (pixels * ratio) ** 0.5
+    raw_height = (pixels / ratio) ** 0.5
+    width = max(multiple, round(raw_width / multiple) * multiple)
+    height = max(multiple, round(raw_height / multiple) * multiple)
+    return int(height if output_slot == 1 else width)
+
+
+def _prompt_resolve_scalar(
+    prompt: Any,
+    value: Any,
+    seen: Optional[set[tuple[str, int]]] = None,
+) -> Any:
+    if value is not None and not isinstance(value, (list, tuple, dict)):
+        return value
+    ref = _prompt_ref(value)
+    if ref is None or not isinstance(prompt, dict):
+        return None
+    if seen is None:
+        seen = set()
+    marker = (ref[0], ref[1])
+    if marker in seen:
+        return None
+    next_seen = set(seen)
+    next_seen.add(marker)
+    node = prompt.get(ref[0])
+    if not isinstance(node, dict):
+        return None
+    inputs = _node_inputs(node)
+    class_type = _as_text(node.get("class_type"))
+
+    if class_type == "ResolutionSelector":
+        return _prompt_resolution_selector_value(node, ref[1])
+
+    if class_type == "ComfySwitchNode":
+        active = inputs.get("on_true") if _prompt_switch_enabled(inputs.get("switch")) else inputs.get("on_false")
+        resolved = _prompt_resolve_scalar(prompt, active, next_seen)
+        if resolved is not None:
+            return resolved
+
+    output_names = {
+        0: ("value", "width", "seed", "steps", "cfg", "int", "number"),
+        1: ("height", "value", "int", "number"),
+    }
+    for input_name in output_names.get(ref[1], ("value", "int", "number")):
+        if input_name not in inputs:
+            continue
+        resolved = _prompt_resolve_scalar(prompt, inputs.get(input_name), next_seen)
+        if resolved is not None:
+            return resolved
+    return None
+
+
+def _prompt_active_vae_node(
+    prompt: Any,
+    save_node_id: Any,
+    sampler_id: str,
+    sampler: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    save_node = prompt.get(_as_text(save_node_id)) if isinstance(prompt, dict) and save_node_id is not None else None
+    if isinstance(save_node, dict):
+        decode_hit = _prompt_find_upstream(
+            prompt,
+            _node_inputs(save_node).get("images"),
+            lambda node: node.get("class_type") == "VAEDecode",
+        )
+        if decode_hit is not None:
+            vae_hit = _prompt_find_upstream(
+                prompt,
+                _node_inputs(decode_hit[1]).get("vae"),
+                lambda node: node.get("class_type") == "VAELoader",
+            )
+            if vae_hit is not None:
+                return vae_hit[1]
+
+    positive_hit = _prompt_find_upstream(
+        prompt,
+        _node_inputs(sampler).get("positive"),
+        lambda node: node.get("class_type") == "TextEncodeQwenImage21",
+    )
+    if positive_hit is not None:
+        vae_hit = _prompt_find_upstream(
+            prompt,
+            _node_inputs(positive_hit[1]).get("vae"),
+            lambda node: node.get("class_type") == "VAELoader",
+        )
+        if vae_hit is not None:
+            return vae_hit[1]
+    return None
+
+
+def _prompt_active_model_node(prompt: Any, sampler: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    hit = _prompt_find_upstream(
+        prompt,
+        _node_inputs(sampler).get("model"),
+        lambda node: node.get("class_type") in {"UNETLoader", "CheckpointLoaderSimple", "CheckpointLoader"},
+    )
+    return hit[1] if hit is not None else None
+
+
+def _prompt_active_encoder_node(prompt: Any, sampler: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    hit = _prompt_find_upstream(
+        prompt,
+        _node_inputs(sampler).get("positive"),
+        lambda node: node.get("class_type") in {"TextEncodeQwenImage21", "CLIPTextEncode"} or node.get("class_type") in ANIMA_REGIONAL_TYPES,
+    )
+    return hit[1] if hit is not None else None
+
+
+def _prompt_active_text_encoder_name(prompt: Any, encoder: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(encoder, dict):
+        return ""
+    hit = _prompt_find_upstream(
+        prompt,
+        _node_inputs(encoder).get("clip"),
+        lambda node: node.get("class_type") in {"CLIPLoader", "DualCLIPLoader", "TripleCLIPLoader"},
+    )
+    if hit is None:
+        return ""
+    inputs = _node_inputs(hit[1])
+    for key in ("clip_name", "clip_name1", "clip_name_1", "text_encoder_name"):
+        if inputs.get(key):
+            return _as_text(inputs.get(key))
+    return ""
+
+
+def _prompt_collect_active_loras(
+    prompt: Any,
+    value: Any,
+    seen: Optional[set[tuple[str, int]]] = None,
+) -> str:
+    ref = _prompt_ref(value)
+    if ref is None or not isinstance(prompt, dict):
+        return ""
+    if seen is None:
+        seen = set()
+    marker = (ref[0], ref[1])
+    if marker in seen:
+        return ""
+    next_seen = set(seen)
+    next_seen.add(marker)
+    node = prompt.get(ref[0])
+    if not isinstance(node, dict):
+        return ""
+    inputs = _node_inputs(node)
+    class_type = _as_text(node.get("class_type"))
+    tags = []
+
+    if "lora" in class_type.lower():
+        for input_name, item in inputs.items():
+            if not str(input_name).lower().startswith("lora"):
+                continue
+            if isinstance(item, dict):
+                if item.get("on") is False:
+                    continue
+                name = item.get("lora") or item.get("name") or item.get("file_name")
+                strength = item.get("strength", item.get("weight", item.get("multiplier", 1.0)))
+                if name:
+                    tags.append(_format_lora_tag(name, strength))
+        lora_name = inputs.get("lora_name")
+        if isinstance(lora_name, str) and lora_name.strip():
+            strength = inputs.get("strength_model", inputs.get("strength", 1.0))
+            try:
+                active = float(strength) != 0.0
+            except Exception:
+                active = True
+            if active:
+                tags.append(_format_lora_tag(lora_name, strength))
+
+    if class_type == "ComfySwitchNode":
+        active_ref = inputs.get("on_true") if _prompt_switch_enabled(inputs.get("switch")) else inputs.get("on_false")
+        nested = _prompt_collect_active_loras(prompt, active_ref, next_seen)
+        if nested:
+            tags.append(nested)
+    elif _prompt_ref(inputs.get("model")) is not None:
+        nested = _prompt_collect_active_loras(prompt, inputs.get("model"), next_seen)
+        if nested:
+            tags.append(nested)
+
+    return " ".join(dict.fromkeys(tag for tag in tags if tag))
+
+
+def _prompt_model_family(prompt: Any, model_name: str) -> str:
+    lower_model = _as_text(model_name).lower()
+    for node in prompt.values() if isinstance(prompt, dict) else []:
+        if not isinstance(node, dict):
+            continue
+        class_type = _as_text(node.get("class_type"))
+        inputs = _node_inputs(node)
+        if class_type == "TextEncodeQwenImage21":
+            return "Qwen Image 2.1"
+        if class_type == "CLIPLoader" and _as_text(inputs.get("type")).lower() == "krea2":
+            return "Krea2"
+    if "qwen_image_2.1" in lower_model or "qwen-image-2.1" in lower_model:
+        return "Qwen Image 2.1"
+    if "krea2" in lower_model or "kres2" in lower_model:
+        return "Krea2"
+    return ""
+
 
 def _graph_nodes(workflow: Any) -> list[Dict[str, Any]]:
     if not isinstance(workflow, dict):
@@ -910,48 +1238,97 @@ class SaveWebPMeta:
                 filename = filename.replace(segment, _sanitize_filename_part(replacement))
         return filename
 
-    def _metadata_from_prompt(self, prompt: Any) -> Dict[str, Any]:
+    def _metadata_from_prompt(self, prompt: Any, id=None) -> Dict[str, Any]:
         info: Dict[str, Any] = {}
         if not isinstance(prompt, dict):
             return info
 
-        ksampler = _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
+        active = _prompt_active_sampler(prompt, save_node_id=id)
+        sampler_id = active[0] if active else ""
+        ksampler = active[1] if active else _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
         if ksampler:
             inputs = _node_inputs(ksampler)
             for src, dst in (
                 ("seed", "seed"),
+                ("noise_seed", "seed"),
                 ("steps", "steps"),
                 ("cfg", "cfg"),
                 ("sampler_name", "sampler"),
                 ("sampler", "sampler"),
                 ("scheduler", "scheduler"),
+                ("denoise", "denoise"),
             ):
-                if src in inputs:
+                if src in inputs and inputs[src] is not None:
                     info[dst] = inputs[src]
 
-        latent = _first_node(prompt, ("EmptyLatentImage", "EmptySD3LatentImage"))
-        if latent:
-            inputs = _node_inputs(latent)
-            if "width" in inputs:
-                info["width"] = inputs["width"]
-            if "height" in inputs:
-                info["height"] = inputs["height"]
+            latent_hit = _prompt_find_upstream(
+                prompt,
+                inputs.get("latent_image"),
+                lambda node: node.get("class_type") in {"EmptyLatentImage", "EmptySD3LatentImage"},
+            )
+            if latent_hit is not None:
+                latent_inputs = _node_inputs(latent_hit[1])
+                width = _prompt_resolve_scalar(prompt, latent_inputs.get("width"))
+                height = _prompt_resolve_scalar(prompt, latent_inputs.get("height"))
+                if width is not None:
+                    info["width"] = width
+                if height is not None:
+                    info["height"] = height
+
+            model_node = _prompt_active_model_node(prompt, ksampler)
+            if model_node is not None:
+                model_inputs = _node_inputs(model_node)
+                for key in ("ckpt_name", "checkpoint", "unet_name", "model_name"):
+                    if model_inputs.get(key):
+                        info["model"] = model_inputs[key]
+                        break
+
+            encoder = _prompt_active_encoder_node(prompt, ksampler)
+            text_encoder = _prompt_active_text_encoder_name(prompt, encoder)
+            if text_encoder:
+                info["text_encoder"] = text_encoder
+
+            vae_node = _prompt_active_vae_node(prompt, id, sampler_id, ksampler)
+            if vae_node is not None:
+                vae_name = _node_inputs(vae_node).get("vae_name")
+                if vae_name:
+                    info["vae"] = vae_name
+
+            loras = _prompt_collect_active_loras(prompt, inputs.get("model"))
+            if loras:
+                info["loras"] = loras
+
+            model_family = _prompt_model_family(prompt, _as_text(info.get("model")))
+            if model_family:
+                info["model_family"] = model_family
+
+        if "width" not in info or "height" not in info:
+            latent = _first_node(prompt, ("EmptyLatentImage", "EmptySD3LatentImage"))
+            if latent:
+                inputs = _node_inputs(latent)
+                width = _prompt_resolve_scalar(prompt, inputs.get("width"))
+                height = _prompt_resolve_scalar(prompt, inputs.get("height"))
+                if width is not None:
+                    info.setdefault("width", width)
+                if height is not None:
+                    info.setdefault("height", height)
         if "width" not in info or "height" not in info:
             anima = _first_node(prompt, ANIMA_REGIONAL_TYPES)
             if anima:
                 inputs = _node_inputs(anima)
                 if "width" in inputs:
-                    info["width"] = inputs["width"]
+                    info.setdefault("width", inputs["width"])
                 if "height" in inputs:
-                    info["height"] = inputs["height"]
+                    info.setdefault("height", inputs["height"])
 
-        ckpt = _first_node(prompt, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
-        if ckpt:
-            inputs = _node_inputs(ckpt)
-            for key in ("ckpt_name", "checkpoint", "unet_name", "model_name"):
-                if key in inputs:
-                    info["model"] = inputs[key]
-                    break
+        if "model" not in info:
+            ckpt = _first_node(prompt, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
+            if ckpt:
+                inputs = _node_inputs(ckpt)
+                for key in ("ckpt_name", "checkpoint", "unet_name", "model_name"):
+                    if key in inputs:
+                        info["model"] = inputs[key]
+                        break
 
         clip_skip = _first_node(prompt, ("CLIPSetLastLayer", "CLIPSkip"))
         if clip_skip:
@@ -973,9 +1350,9 @@ class SaveWebPMeta:
                 break
 
         if "clip_skip" not in info:
-            clip_skip = _find_named_value(prompt, ("stop_at_clip_layer", "clip_skip", "clip_layer"))
-            if clip_skip is not None:
-                info["clip_skip"] = _clip_skip_value(clip_skip)
+            clip_skip_value = _find_named_value(prompt, ("stop_at_clip_layer", "clip_skip", "clip_layer"))
+            if clip_skip_value is not None:
+                info["clip_skip"] = _clip_skip_value(clip_skip_value)
         if "rng_source" not in info:
             rng_source = _find_named_value(
                 prompt,
@@ -983,6 +1360,7 @@ class SaveWebPMeta:
             )
             if rng_source is not None:
                 info["rng_source"] = rng_source
+
         eta_noise_seed_delta = _find_named_value(
             prompt,
             ("eta_noise_seed_delta", "eta_noise_seed", "noise_seed_delta", "ensd"),
@@ -1135,7 +1513,7 @@ class SaveWebPMeta:
         info: Dict[str, Any] = {}
         if isinstance(extra_pnginfo, dict):
             info.update(self._metadata_from_workflow(extra_pnginfo.get("workflow")))
-        info.update(self._metadata_from_prompt(prompt))
+        info.update(self._metadata_from_prompt(prompt, id=id))
         return info
 
     def _build_a1111_parameters(self, info: Dict[str, Any], width: int, height: int) -> str:
