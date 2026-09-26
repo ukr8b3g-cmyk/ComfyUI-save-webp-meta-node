@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -150,7 +151,9 @@ def _tensor_to_pil(image_tensor) -> Image.Image:
     return Image.fromarray((img * 255.0).clip(0, 255).astype("uint8"), mode="RGB")
 
 
-def _node_inputs(node: Dict[str, Any]) -> Dict[str, Any]:
+def _node_inputs(node: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(node, dict):
+        return {}
     return node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
 
 
@@ -164,11 +167,48 @@ def _first_node(prompt: Any, class_names: Iterable[str]) -> Optional[Dict[str, A
     return None
 
 
-def _prompt_linked_node(prompt: Any, value: Any) -> Optional[Dict[str, Any]]:
-    if not isinstance(prompt, dict) or not isinstance(value, (list, tuple)) or not value:
+def _prompt_reference(value: Any) -> Optional[tuple[str, int]]:
+    if isinstance(value, (list, tuple)) and len(value) >= 2 and isinstance(value[1], int):
+        return str(value[0]), value[1]
+    return None
+
+
+def _prompt_path_node(prompt: Any, value: Any, types: Iterable[str], input_names: Iterable[str], seen=None):
+    reference = _prompt_reference(value)
+    if not isinstance(prompt, dict) or reference is None:
         return None
-    node = prompt.get(str(value[0]))
-    return node if isinstance(node, dict) else None
+    seen = set() if seen is None else seen
+    if reference in seen:
+        return None
+    seen.add(reference)
+    node = prompt.get(reference[0])
+    if not isinstance(node, dict):
+        return None
+    if node.get("class_type") in types:
+        return node
+    inputs = _node_inputs(node)
+    if node.get("class_type") == "ComfySwitchNode":
+        switch = inputs.get("switch")
+        active = switch is True or _as_text(switch).lower() in {"true", "1"}
+        return _prompt_path_node(prompt, inputs.get("on_true" if active else "on_false"), types, input_names, seen)
+    for name in input_names:
+        found = _prompt_path_node(prompt, inputs.get(name), types, input_names, seen)
+        if found is not None:
+            return found
+    return None
+
+
+def _prompt_active_sampler(prompt: Any, save_id: Any) -> Optional[Dict[str, Any]]:
+    save_node = prompt.get(str(save_id)) if isinstance(prompt, dict) and save_id is not None else None
+    if isinstance(save_node, dict) and save_node.get("class_type") == "SaveWebPMeta":
+        sampler = _prompt_path_node(
+            prompt, _node_inputs(save_node).get("images"),
+            ("KSampler", "KSamplerAdvanced"),
+            ("images", "image", "samples", "latent", "latent_image"),
+        )
+        if sampler is not None:
+            return sampler
+    return _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
 
 
 def _prompt_node_title(node: Dict[str, Any]) -> str:
@@ -192,77 +232,176 @@ def _anima_prompt_from_inputs(inputs: Dict[str, Any], negative: bool) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
-def _prompt_resolve_text(prompt: Any, node: Optional[Dict[str, Any]], seen: Optional[set[int]] = None) -> str:
-    if not isinstance(prompt, dict) or not isinstance(node, dict):
-        return ""
-    if seen is None:
-        seen = set()
-    marker = id(node)
+def _prompt_resolve_text(prompt: Any, value: Any, negative: bool, seen=None) -> tuple[str, bool]:
+    if isinstance(value, str):
+        return value, True
+    reference = _prompt_reference(value)
+    if not isinstance(prompt, dict) or reference is None:
+        return "", False
+    marker = (reference[0], reference[1], "negative" if negative else "positive")
+    seen = set() if seen is None else seen
     if marker in seen:
-        return ""
-    seen.add(marker)
-
+        return "", False
+    seen = seen | {marker}
+    node = prompt.get(reference[0])
+    if not isinstance(node, dict):
+        return "", False
     inputs = _node_inputs(node)
-    if node.get("class_type") in ANIMA_REGIONAL_TYPES:
-        return _anima_prompt_from_inputs(inputs, negative=False)
+    node_type = node.get("class_type")
 
-    text_value = inputs.get("text")
-    if isinstance(text_value, str):
-        return text_value
-    linked = _prompt_linked_node(prompt, text_value)
-    if linked is not None:
-        text = _prompt_resolve_text(prompt, linked, seen)
-        if text.strip():
-            return text
-
-    if node.get("class_type") == "StringConcatenate":
+    if node_type == "ConditioningZeroOut" and negative:
+        return "", True
+    if node_type == "ComfySwitchNode":
+        switch = inputs.get("switch")
+        active = switch is True or _as_text(switch).lower() in {"true", "1"}
+        return _prompt_resolve_text(prompt, inputs.get("on_true" if active else "on_false"), negative, seen)
+    if node_type == "TextEncodeQwenImage21":
+        key = "negative_prompt" if reference[1] == 1 else "prompt" if reference[1] == 0 else None
+        if key is not None and key in inputs:
+            return _prompt_resolve_text(prompt, inputs[key], negative, seen)
+        return "", False
+    if node_type in ANIMA_REGIONAL_TYPES:
+        return _anima_prompt_from_inputs(inputs, negative), True
+    if node_type == "StringConcatenate":
         parts = []
-        delimiter = inputs.get("delimiter", "")
-        if not isinstance(delimiter, str):
-            delimiter = ""
-        for input_name in ("string_a", "string_b"):
-            value = inputs.get(input_name)
-            linked = _prompt_linked_node(prompt, value)
-            text = _prompt_resolve_text(prompt, linked, seen) if linked is not None else value
-            if isinstance(text, str) and text.strip():
+        resolved = False
+        for key in ("string_a", "string_b"):
+            text, found = _prompt_resolve_text(prompt, inputs.get(key), negative, seen)
+            resolved |= found
+            if text:
                 parts.append(text)
-        return delimiter.join(parts)
+        delimiter = inputs.get("delimiter", "")
+        return (_as_text(delimiter).join(parts), True) if resolved else ("", False)
+    if node_type in {"CLIPTextEncode", "PrimitiveStringMultiline", "PrimitiveString"}:
+        for key in ("text", "value", "string"):
+            if key in inputs:
+                return _prompt_resolve_text(prompt, inputs[key], negative, seen)
+    for key in ("negative" if negative else "positive", "conditioning", "text", "prompt", "value", "string"):
+        if key in inputs:
+            text, found = _prompt_resolve_text(prompt, inputs[key], negative, seen)
+            if found:
+                return text, True
+    return "", False
 
-    for input_name in ("value", "string", "prompt"):
-        value = inputs.get(input_name)
-        if isinstance(value, str):
-            return value
-        linked = _prompt_linked_node(prompt, value)
-        if linked is not None:
-            text = _prompt_resolve_text(prompt, linked, seen)
-            if text.strip():
-                return text
-    return ""
 
-
-def _prompt_text_node(prompt: Any, negative: bool) -> str:
-    sampler = _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
-    if sampler:
-        linked = _prompt_linked_node(prompt, _node_inputs(sampler).get("negative" if negative else "positive"))
-        if isinstance(linked, dict) and linked.get("class_type") in ANIMA_REGIONAL_TYPES:
-            text = _anima_prompt_from_inputs(_node_inputs(linked), negative=negative)
-            if text.strip():
-                return text
-        text = _prompt_resolve_text(prompt, linked)
-        if text.strip():
-            return text
-
-    for node in prompt.values() if isinstance(prompt, dict) else []:
+def _prompt_text_node(prompt: Any, negative: bool, sampler=None) -> tuple[str, bool]:
+    if sampler is not None:
+        value = _node_inputs(sampler).get("negative" if negative else "positive")
+        text, resolved = _prompt_resolve_text(prompt, value, negative)
+        if _prompt_reference(value) is not None:
+            return text, resolved
+    for node_id, node in prompt.items() if isinstance(prompt, dict) else []:
         if not isinstance(node, dict) or node.get("class_type") != "CLIPTextEncode":
             continue
-        title = _prompt_node_title(node)
-        is_negative = "negative" in title.lower()
-        if is_negative != negative:
-            continue
-        text = _prompt_resolve_text(prompt, node)
-        if text.strip():
-            return text
-    return ""
+        if ("negative" in _prompt_node_title(node).lower()) == negative:
+            text, resolved = _prompt_resolve_text(prompt, (node_id, 0), negative)
+            if resolved and text:
+                return text, True
+    return "", False
+
+
+def _prompt_conditioning_node(prompt: Any, value: Any, seen=None):
+    reference = _prompt_reference(value)
+    if reference is None or not isinstance(prompt, dict):
+        return None
+    seen = set() if seen is None else seen
+    if reference in seen:
+        return None
+    seen.add(reference)
+    node = prompt.get(reference[0])
+    if not isinstance(node, dict):
+        return None
+    if node.get("class_type") in {"CLIPTextEncode", "TextEncodeQwenImage21"}:
+        return node
+    inputs = _node_inputs(node)
+    if node.get("class_type") == "ComfySwitchNode":
+        switch = inputs.get("switch")
+        active = switch is True or _as_text(switch).lower() in {"true", "1"}
+        return _prompt_conditioning_node(prompt, inputs.get("on_true" if active else "on_false"), seen)
+    for key in ("conditioning", "positive", "negative"):
+        found = _prompt_conditioning_node(prompt, inputs.get(key), seen)
+        if found is not None:
+            return found
+    return None
+
+
+def _prompt_loras(node: Dict[str, Any]) -> list[str]:
+    inputs = _node_inputs(node)
+    tags = []
+    if "lora_name" in inputs:
+        strength = inputs.get("strength_model", 1)
+        if _as_text(strength) not in {"0", "0.0"}:
+            tags.append(_format_lora_tag(inputs["lora_name"], strength))
+    for value in inputs.values():
+        rows = value if isinstance(value, list) else [value]
+        for row in rows:
+            if not isinstance(row, dict) or row.get("on") is False:
+                continue
+            name = row.get("lora") or row.get("name") or row.get("file_name")
+            if name:
+                tags.append(_format_lora_tag(name, row.get("strength", 1)))
+    return tags
+
+
+def _prompt_model_path(prompt: Any, sampler: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    info: Dict[str, Any] = {}
+    value = _node_inputs(sampler).get("model") if sampler else None
+    seen = set()
+    tags = []
+    while (reference := _prompt_reference(value)) is not None and reference not in seen:
+        seen.add(reference)
+        node = prompt.get(reference[0])
+        if not isinstance(node, dict):
+            break
+        node_type = _as_text(node.get("class_type"))
+        inputs = _node_inputs(node)
+        if "lora" in node_type.lower():
+            tags.extend(_prompt_loras(node))
+        if node_type in {"UNETLoader", "CheckpointLoaderSimple", "CheckpointLoader"}:
+            for key in ("unet_name", "ckpt_name", "checkpoint", "model_name"):
+                if key in inputs:
+                    info["model"] = inputs[key]
+                    break
+            break
+        value = inputs.get("model")
+    if tags:
+        info["loras"] = " ".join(tags)
+    return info
+
+
+def _resolution_dimensions(inputs: Dict[str, Any]) -> Optional[tuple[int, int]]:
+    ratio = _as_text(inputs.get("aspect_ratio", "")).strip().lower()
+    match = re.search(r"(\d+(?:\.\d+)?)\s*[:x/]\s*(\d+(?:\.\d+)?)", ratio)
+    try:
+        aspect = float(match[1]) / float(match[2]) if match else float(ratio)
+        pixels = float(inputs.get("megapixels")) * 1024 * 1024
+        multiple = max(1, int(inputs.get("multiple", 1)))
+        if aspect <= 0 or pixels <= 0:
+            return None
+        width = max(multiple, round(math.sqrt(pixels * aspect) / multiple) * multiple)
+        height = max(multiple, round(math.sqrt(pixels / aspect) / multiple) * multiple)
+        return width, height
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _prompt_number(prompt: Any, value: Any) -> Optional[int]:
+    if isinstance(value, (int, float)):
+        return int(value)
+    reference = _prompt_reference(value)
+    if reference is None or not isinstance(prompt, dict):
+        return None
+    node = prompt.get(reference[0])
+    if not isinstance(node, dict):
+        return None
+    inputs = _node_inputs(node)
+    if node.get("class_type") == "ResolutionSelector":
+        dimensions = _resolution_dimensions(inputs)
+        return dimensions[reference[1]] if dimensions and reference[1] in (0, 1) else None
+    for key in ("value", "number", "int"):
+        if isinstance(inputs.get(key), (int, float)):
+            return int(inputs[key])
+    return None
 
 
 def _graph_nodes(workflow: Any) -> list[Dict[str, Any]]:
@@ -445,16 +584,16 @@ def _graph_input_link(node: Dict[str, Any], input_name: str) -> Optional[int]:
     return None
 
 
-def _graph_link_sources(workflow: Any) -> Dict[int, int]:
+def _graph_link_sources(workflow: Any) -> Dict[int, tuple[int, int]]:
     if not isinstance(workflow, dict):
         return {}
-    sources: Dict[int, int] = {}
+    sources: Dict[int, tuple[int, int]] = {}
     links = workflow.get("links")
     if not isinstance(links, list):
         return sources
     for link in links:
-        if isinstance(link, list) and len(link) >= 2 and isinstance(link[0], int) and isinstance(link[1], int):
-            sources[link[0]] = link[1]
+        if isinstance(link, list) and len(link) >= 3 and all(isinstance(item, int) for item in link[:3]):
+            sources[link[0]] = (link[1], link[2])
     return sources
 
 
@@ -462,48 +601,135 @@ def _graph_node_map(nodes: list[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
     return {node["id"]: node for node in nodes if isinstance(node.get("id"), int)}
 
 
-def _graph_resolve_string(node: Optional[Dict[str, Any]], node_map: Dict[int, Dict[str, Any]], link_sources: Dict[int, int], seen: Optional[set[int]] = None) -> str:
-    if not isinstance(node, dict) or not isinstance(node.get("id"), int):
-        return ""
-    seen = seen or set()
-    node_id = node["id"]
-    if node_id in seen:
-        return ""
-    seen.add(node_id)
+def _graph_source(node, input_name, node_map, link_sources):
+    reference = link_sources.get(_graph_input_link(node, input_name)) if isinstance(node, dict) else None
+    return (node_map.get(reference[0]), reference[1]) if reference else (None, 0)
 
+
+def _graph_path_node(node, types, input_names, node_map, link_sources, seen=None):
+    if not isinstance(node, dict):
+        return None
+    seen = set() if seen is None else seen
+    node_id = node.get("id")
+    if node_id in seen:
+        return None
+    seen.add(node_id)
+    if node.get("type") in types:
+        return node
+    if node.get("type") == "ComfySwitchNode":
+        switch = _graph_widget_value(node, ("switch",))
+        if switch is None:
+            values = _graph_values(node)
+            switch = values[0] if values else False
+        active = switch is True or _as_text(switch).lower() in {"true", "1"}
+        source, _ = _graph_source(node, "on_true" if active else "on_false", node_map, link_sources)
+        return _graph_path_node(source, types, input_names, node_map, link_sources, seen)
+    for key in input_names:
+        source, _ = _graph_source(node, key, node_map, link_sources)
+        found = _graph_path_node(source, types, input_names, node_map, link_sources, seen)
+        if found is not None:
+            return found
+    return None
+
+
+def _graph_active_sampler(nodes, save_id, node_map, link_sources):
+    try:
+        save_node = node_map.get(int(save_id))
+    except (TypeError, ValueError):
+        save_node = None
+    if isinstance(save_node, dict) and save_node.get("type") == "SaveWebPMeta":
+        source, _ = _graph_source(save_node, "images", node_map, link_sources)
+        sampler = _graph_path_node(
+            source, ("KSampler", "KSamplerAdvanced"),
+            ("images", "image", "samples", "latent", "latent_image"), node_map, link_sources,
+        )
+        if sampler is not None:
+            return sampler
+    return _graph_first(nodes, ("KSampler", "KSamplerAdvanced"))
+
+
+def _graph_resolve_text(node, slot, negative, node_map, link_sources, seen=None) -> tuple[str, bool]:
+    if not isinstance(node, dict):
+        return "", False
+    marker = (node.get("id"), slot, "negative" if negative else "positive")
+    seen = set() if seen is None else seen
+    if marker in seen:
+        return "", False
+    seen = seen | {marker}
     node_type = node.get("type")
     values = _graph_values(node)
-    if node_type in {"PrimitiveStringMultiline", "PrimitiveString"}:
-        return values[0] if values and isinstance(values[0], str) else ""
+
+    if node_type == "ConditioningZeroOut" and negative:
+        return "", True
+    if node_type == "ComfySwitchNode":
+        switch = _graph_widget_value(node, ("switch",))
+        if switch is None and values:
+            switch = values[0]
+        active = switch is True or _as_text(switch).lower() in {"true", "1"}
+        source, source_slot = _graph_source(node, "on_true" if active else "on_false", node_map, link_sources)
+        return _graph_resolve_text(source, source_slot, negative, node_map, link_sources, seen)
+    if node_type in ANIMA_REGIONAL_TYPES:
+        return _graph_anima_prompt(node, negative), True
+    if node_type == "TextEncodeQwenImage21":
+        key = "negative_prompt" if slot == 1 else "prompt" if slot == 0 else None
+        if key is None:
+            return "", False
+        source, source_slot = _graph_source(node, key, node_map, link_sources)
+        if source is not None:
+            return _graph_resolve_text(source, source_slot, negative, node_map, link_sources, seen)
+        text = _graph_widget_value(node, (key,))
+        if text is None and len(values) > slot:
+            text = values[slot]
+        return (_as_text(text), True) if text is not None else ("", False)
     if node_type == "StringConcatenate":
         parts = []
-        delimiter = values[2] if len(values) >= 3 and isinstance(values[2], str) else ""
-        for idx, input_name in enumerate(("string_a", "string_b")):
-            text = ""
-            link = _graph_input_link(node, input_name)
-            if link in link_sources:
-                text = _graph_resolve_string(node_map.get(link_sources[link]), node_map, link_sources, seen)
-            elif len(values) > idx and isinstance(values[idx], str):
-                text = values[idx]
+        resolved = False
+        for index, key in enumerate(("string_a", "string_b")):
+            source, source_slot = _graph_source(node, key, node_map, link_sources)
+            if source is not None:
+                text, found = _graph_resolve_text(source, source_slot, negative, node_map, link_sources, seen)
+            else:
+                text = _graph_widget_value(node, (key,))
+                text = text if text is not None else (values[index] if len(values) > index else None)
+                found = isinstance(text, str)
+            resolved |= found
             if text:
-                parts.append(text)
-        return delimiter.join(parts)
-    if node_type == "CLIPTextEncode":
-        link = _graph_input_link(node, "text")
-        if link in link_sources:
-            return _graph_resolve_string(node_map.get(link_sources[link]), node_map, link_sources, seen)
-        return values[0] if values and isinstance(values[0], str) else ""
-    return values[0] if values and isinstance(values[0], str) else ""
+                parts.append(_as_text(text))
+        delimiter = _graph_widget_value(node, ("delimiter",))
+        delimiter = delimiter if delimiter is not None else (values[2] if len(values) > 2 else "")
+        return (_as_text(delimiter).join(parts), True) if resolved else ("", False)
+    if node_type in {"CLIPTextEncode", "PrimitiveStringMultiline", "PrimitiveString"}:
+        for key in ("text", "value", "string"):
+            source, source_slot = _graph_source(node, key, node_map, link_sources)
+            if source is not None:
+                return _graph_resolve_text(source, source_slot, negative, node_map, link_sources, seen)
+            text = _graph_widget_value(node, (key,))
+            if text is not None:
+                return _as_text(text), True
+        if values and isinstance(values[0], str):
+            return values[0], True
+    for key in ("negative" if negative else "positive", "conditioning"):
+        source, source_slot = _graph_source(node, key, node_map, link_sources)
+        if source is not None:
+            text, found = _graph_resolve_text(source, source_slot, negative, node_map, link_sources, seen)
+            if found:
+                return text, True
+    return "", False
 
 
-def _graph_text_node(workflow: Any, nodes: list[Dict[str, Any]], negative: bool) -> str:
+def _graph_text_node(workflow: Any, nodes: list[Dict[str, Any]], negative: bool, sampler=None) -> tuple[str, bool]:
     node_map = _graph_node_map(nodes)
     link_sources = _graph_link_sources(workflow)
+    if sampler is not None:
+        source, slot = _graph_source(sampler, "negative" if negative else "positive", node_map, link_sources)
+        text, resolved = _graph_resolve_text(source, slot, negative, node_map, link_sources)
+        if _graph_input_link(sampler, "negative" if negative else "positive") is not None:
+            return text, resolved
     for node in nodes:
         if node.get("type") in ANIMA_REGIONAL_TYPES:
             text = _graph_anima_prompt(node, negative=negative)
             if text.strip():
-                return text
+                return text, True
 
     # Prefer titled negative CLIP nodes for negative prompt, and non-negative CLIP nodes for prompt.
     for node in nodes:
@@ -513,17 +739,17 @@ def _graph_text_node(workflow: Any, nodes: list[Dict[str, Any]], negative: bool)
         is_negative = "negative" in title.lower()
         if is_negative != negative:
             continue
-        text = _graph_resolve_string(node, node_map, link_sources)
+        text, _ = _graph_resolve_text(node, 0, negative, node_map, link_sources)
         if text.strip():
-            return text
+            return text, True
     # Fallback to primitive/string nodes for positive prompt only.
     if not negative:
         for node in nodes:
             if node.get("type") in {"PrimitiveStringMultiline", "PrimitiveString", "StringConcatenate"}:
-                text = _graph_resolve_string(node, node_map, link_sources)
+                text, _ = _graph_resolve_text(node, 0, negative, node_map, link_sources)
                 if text.strip():
-                    return text
-    return ""
+                    return text, True
+    return "", False
 
 
 def _format_loras_from_any(value: Any) -> str:
@@ -717,27 +943,93 @@ def _lora_hashes_text(loras: str) -> str:
     return f'Lora hashes: "{", ".join(f"{name}: {hash_value}" for name, hash_value in hashes.items())}"'
 
 
-def _extract_graph_loras(nodes: list[Dict[str, Any]]) -> str:
+def _graph_loras(node: Dict[str, Any]) -> list[str]:
     tags = []
-    for node in nodes:
-        node_type = _as_text(node.get("type")).lower()
-        if "lora" not in node_type:
-            continue
-        values = _graph_values(node)
-        # rgthree Power Lora Loader stores lora rows as dicts in widgets_values.
-        for value in values:
-            if isinstance(value, dict):
-                if value.get("on") is False:
-                    continue
-                name = value.get("lora") or value.get("name") or value.get("file_name")
-                strength = value.get("strength", value.get("weight", value.get("multiplier", 1.0)))
-                if name:
-                    tags.append(_format_lora_tag(name, strength))
-            elif isinstance(value, str) and "<lora:" in value:
-                formatted = _format_loras_from_any(value)
-                if formatted:
-                    tags.append(formatted)
-    return " ".join(tags)
+    values = _graph_values(node)
+    if node.get("type") == "LoraLoader":
+        name = _graph_widget_value(node, ("lora_name",))
+        name = name if name is not None else (values[0] if values else None)
+        strength = _graph_widget_value(node, ("strength_model",))
+        strength = strength if strength is not None else (values[1] if len(values) > 1 else 1)
+        if name and _as_text(strength) not in {"0", "0.0"}:
+            tags.append(_format_lora_tag(name, strength))
+    for value in values:
+        rows = value if isinstance(value, list) else [value]
+        for row in rows:
+            if not isinstance(row, dict) or row.get("on") is False:
+                continue
+            name = row.get("lora") or row.get("name") or row.get("file_name")
+            if name:
+                tags.append(_format_lora_tag(name, row.get("strength", 1)))
+    return tags
+
+
+def _graph_model_path(sampler, node_map, link_sources) -> Dict[str, Any]:
+    info: Dict[str, Any] = {}
+    node, _ = _graph_source(sampler, "model", node_map, link_sources)
+    tags = []
+    seen = set()
+    while isinstance(node, dict) and node.get("id") not in seen:
+        seen.add(node.get("id"))
+        node_type = _as_text(node.get("type"))
+        if "lora" in node_type.lower():
+            tags.extend(_graph_loras(node))
+        if node_type in {"UNETLoader", "CheckpointLoaderSimple", "CheckpointLoader"}:
+            values = _graph_values(node)
+            model = _graph_widget_value(node, ("unet_name", "ckpt_name", "checkpoint", "model_name"))
+            if model is None and values:
+                model = values[0]
+            if model is not None:
+                info["model"] = model
+            break
+        node, _ = _graph_source(node, "model", node_map, link_sources)
+    if tags:
+        info["loras"] = " ".join(tags)
+    return info
+
+
+def _graph_conditioning_node(node, node_map, link_sources, seen=None):
+    if not isinstance(node, dict):
+        return None
+    seen = set() if seen is None else seen
+    if node.get("id") in seen:
+        return None
+    seen.add(node.get("id"))
+    if node.get("type") in {"CLIPTextEncode", "TextEncodeQwenImage21"}:
+        return node
+    if node.get("type") == "ComfySwitchNode":
+        switch = _graph_widget_value(node, ("switch",))
+        if switch is None:
+            values = _graph_values(node)
+            switch = values[0] if values else False
+        active = switch is True or _as_text(switch).lower() in {"true", "1"}
+        source, _ = _graph_source(node, "on_true" if active else "on_false", node_map, link_sources)
+        return _graph_conditioning_node(source, node_map, link_sources, seen)
+    for key in ("conditioning", "positive", "negative"):
+        source, _ = _graph_source(node, key, node_map, link_sources)
+        found = _graph_conditioning_node(source, node_map, link_sources, seen)
+        if found is not None:
+            return found
+    return None
+
+
+def _graph_dimension(latent, key, index, node_map, link_sources):
+    source, slot = _graph_source(latent, key, node_map, link_sources)
+    if source is not None and source.get("type") == "ResolutionSelector":
+        values = _graph_values(source)
+        inputs = {}
+        for position, name in enumerate(("aspect_ratio", "megapixels", "multiple")):
+            value = _graph_widget_value(source, (name,))
+            inputs[name] = value if value is not None else (values[position] if len(values) > position else None)
+        dimensions = _resolution_dimensions(inputs)
+        return dimensions[slot] if dimensions and slot in (0, 1) else None
+    value = _graph_widget_value(latent, (key,))
+    values = _graph_values(latent)
+    value = value if value is not None else (values[index] if len(values) > index else None)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class SaveWebPMeta:
@@ -798,12 +1090,12 @@ class SaveWebPMeta:
                 filename = filename.replace(segment, _sanitize_filename_part(replacement))
         return filename
 
-    def _metadata_from_prompt(self, prompt: Any) -> Dict[str, Any]:
+    def _metadata_from_prompt(self, prompt: Any, save_id=None) -> Dict[str, Any]:
         info: Dict[str, Any] = {}
         if not isinstance(prompt, dict):
             return info
 
-        ksampler = _first_node(prompt, ("KSampler", "KSamplerAdvanced"))
+        ksampler = _prompt_active_sampler(prompt, save_id)
         if ksampler:
             inputs = _node_inputs(ksampler)
             for src, dst in (
@@ -813,17 +1105,23 @@ class SaveWebPMeta:
                 ("sampler_name", "sampler"),
                 ("sampler", "sampler"),
                 ("scheduler", "scheduler"),
+                ("denoise", "denoise"),
             ):
                 if src in inputs:
                     info[dst] = inputs[src]
 
-        latent = _first_node(prompt, ("EmptyLatentImage", "EmptySD3LatentImage"))
+        latent = _prompt_path_node(
+            prompt, _node_inputs(ksampler).get("latent_image") if ksampler else None,
+            ("EmptyLatentImage", "EmptySD3LatentImage"), ("latent_image", "samples", "latent"),
+        )
+        if latent is None and _prompt_reference(_node_inputs(ksampler).get("latent_image")) is None:
+            latent = _first_node(prompt, ("EmptyLatentImage", "EmptySD3LatentImage"))
         if latent:
             inputs = _node_inputs(latent)
-            if "width" in inputs:
-                info["width"] = inputs["width"]
-            if "height" in inputs:
-                info["height"] = inputs["height"]
+            for key in ("width", "height"):
+                number = _prompt_number(prompt, inputs.get(key))
+                if number is not None:
+                    info[key] = number
         if "width" not in info or "height" not in info:
             anima = _first_node(prompt, ANIMA_REGIONAL_TYPES)
             if anima:
@@ -833,13 +1131,51 @@ class SaveWebPMeta:
                 if "height" in inputs:
                     info["height"] = inputs["height"]
 
+        info.update(_prompt_model_path(prompt, ksampler))
         ckpt = _first_node(prompt, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
-        if ckpt:
+        if "model" not in info and _prompt_reference(_node_inputs(ksampler).get("model")) is None and ckpt:
             inputs = _node_inputs(ckpt)
             for key in ("ckpt_name", "checkpoint", "unet_name", "model_name"):
                 if key in inputs:
                     info["model"] = inputs[key]
                     break
+
+        positive_node = _prompt_conditioning_node(prompt, _node_inputs(ksampler).get("positive")) if ksampler else None
+        clip_loader = _prompt_path_node(
+            prompt, _node_inputs(positive_node).get("clip") if positive_node else None,
+            ("CLIPLoader",), ("clip",),
+        )
+        if clip_loader:
+            clip_inputs = _node_inputs(clip_loader)
+            encoder = clip_inputs.get("clip_name") or clip_inputs.get("text_encoder")
+            if encoder:
+                info["text_encoder"] = encoder
+        save_node = prompt.get(str(save_id)) if save_id is not None else None
+        decode = _prompt_path_node(
+            prompt, _node_inputs(save_node).get("images") if isinstance(save_node, dict) else None,
+            ("VAEDecode", "VAEDecodeTiled"), ("images", "image", "samples", "latent"),
+        )
+        if decode is None and ksampler:
+            for node in prompt.values():
+                if isinstance(node, dict) and node.get("class_type") in {"VAEDecode", "VAEDecodeTiled"}:
+                    source = _prompt_reference(_node_inputs(node).get("samples"))
+                    if source and prompt.get(source[0]) is ksampler:
+                        decode = node
+                        break
+        vae_loader = _prompt_path_node(
+            prompt, _node_inputs(decode).get("vae") if decode else None,
+            ("VAELoader",), ("vae",),
+        )
+        if vae_loader:
+            vae = _node_inputs(vae_loader).get("vae_name")
+            if vae:
+                info["vae"] = vae
+        model_name = _as_text(info.get("model")).lower()
+        clip_type = _as_text(_node_inputs(clip_loader).get("type") if clip_loader else "").lower()
+        if clip_type == "krea2" or "krea2" in model_name or "kres2" in model_name:
+            info["model_family"] = "Krea2"
+        elif (positive_node and positive_node.get("class_type") == "TextEncodeQwenImage21") or "qwen_image_2.1" in model_name or "qwen-image-2.1" in model_name:
+            info["model_family"] = "Qwen Image 2.1"
 
         clip_skip = _first_node(prompt, ("CLIPSetLastLayer", "CLIPSkip"))
         if clip_skip:
@@ -884,22 +1220,24 @@ class SaveWebPMeta:
         if emphasis_mode is not None:
             info["emphasis_mode"] = emphasis_mode
 
-        positive = _prompt_text_node(prompt, negative=False)
-        negative = _prompt_text_node(prompt, negative=True)
-        if positive:
+        positive, positive_resolved = _prompt_text_node(prompt, negative=False, sampler=ksampler)
+        negative, negative_resolved = _prompt_text_node(prompt, negative=True, sampler=ksampler)
+        if positive_resolved:
             info["prompt"] = positive
-        if negative:
+        if negative_resolved:
             info["negative_prompt"] = negative
 
         return info
 
-    def _metadata_from_workflow(self, workflow: Any) -> Dict[str, Any]:
+    def _metadata_from_workflow(self, workflow: Any, save_id=None) -> Dict[str, Any]:
         info: Dict[str, Any] = {}
         nodes = _graph_nodes(workflow)
         if not nodes:
             return info
 
-        ksampler = _graph_first(nodes, ("KSampler", "KSamplerAdvanced"))
+        node_map = _graph_node_map(nodes)
+        link_sources = _graph_link_sources(workflow)
+        ksampler = _graph_active_sampler(nodes, save_id, node_map, link_sources)
         values = _graph_values(ksampler)
         # Common KSampler widget order: seed, control_after_generate, steps, cfg, sampler, scheduler, denoise
         if len(values) >= 1:
@@ -912,13 +1250,17 @@ class SaveWebPMeta:
             info["sampler"] = values[4]
         if len(values) >= 6:
             info["scheduler"] = values[5]
+        if len(values) >= 7:
+            info["denoise"] = values[6]
 
-        latent = _graph_first(nodes, ("EmptyLatentImage", "EmptySD3LatentImage"))
-        values = _graph_values(latent)
-        if len(values) >= 1:
-            info["width"] = values[0]
-        if len(values) >= 2:
-            info["height"] = values[1]
+        latent_source, _ = _graph_source(ksampler, "latent_image", node_map, link_sources)
+        latent = _graph_path_node(latent_source, ("EmptyLatentImage", "EmptySD3LatentImage"), ("latent_image", "samples", "latent"), node_map, link_sources)
+        if latent is None and (ksampler is None or _graph_input_link(ksampler, "latent_image") is None):
+            latent = _graph_first(nodes, ("EmptyLatentImage", "EmptySD3LatentImage"))
+        for index, key in enumerate(("width", "height")):
+            dimension = _graph_dimension(latent, key, index, node_map, link_sources)
+            if dimension is not None:
+                info[key] = dimension
         if "width" not in info or "height" not in info:
             anima = _graph_first(nodes, ANIMA_REGIONAL_TYPES)
             values = _graph_values(anima)
@@ -927,10 +1269,54 @@ class SaveWebPMeta:
             if len(values) >= 2:
                 info["height"] = values[1]
 
+        info.update(_graph_model_path(ksampler, node_map, link_sources))
         ckpt = _graph_first(nodes, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
         values = _graph_values(ckpt)
-        if values:
+        if "model" not in info and (ksampler is None or _graph_input_link(ksampler, "model") is None) and values:
             info["model"] = values[0]
+
+        positive_source, _ = _graph_source(ksampler, "positive", node_map, link_sources)
+        positive_node = _graph_conditioning_node(positive_source, node_map, link_sources)
+        clip_source, _ = _graph_source(positive_node, "clip", node_map, link_sources)
+        clip_loader = _graph_path_node(clip_source, ("CLIPLoader",), ("clip",), node_map, link_sources)
+        if clip_loader:
+            encoder = _graph_widget_value(clip_loader, ("clip_name", "text_encoder"))
+            if encoder is None:
+                clip_values = _graph_values(clip_loader)
+                encoder = clip_values[0] if clip_values else None
+            if encoder:
+                info["text_encoder"] = encoder
+        try:
+            save_node = node_map.get(int(save_id))
+        except (TypeError, ValueError):
+            save_node = None
+        image_source, _ = _graph_source(save_node, "images", node_map, link_sources)
+        decode = _graph_path_node(image_source, ("VAEDecode", "VAEDecodeTiled"), ("images", "image", "samples", "latent"), node_map, link_sources)
+        if decode is None and ksampler:
+            for node in nodes:
+                if node.get("type") in {"VAEDecode", "VAEDecodeTiled"}:
+                    source, _ = _graph_source(node, "samples", node_map, link_sources)
+                    if source is ksampler:
+                        decode = node
+                        break
+        vae_source, _ = _graph_source(decode, "vae", node_map, link_sources)
+        vae_loader = _graph_path_node(vae_source, ("VAELoader",), ("vae",), node_map, link_sources)
+        if vae_loader:
+            vae = _graph_widget_value(vae_loader, ("vae_name",))
+            if vae is None:
+                vae_values = _graph_values(vae_loader)
+                vae = vae_values[0] if vae_values else None
+            if vae:
+                info["vae"] = vae
+        model_name = _as_text(info.get("model")).lower()
+        clip_values = _graph_values(clip_loader)
+        clip_type = _graph_widget_value(clip_loader, ("type",))
+        if clip_type is None and len(clip_values) > 1:
+            clip_type = clip_values[1]
+        if _as_text(clip_type).lower() == "krea2" or "krea2" in model_name or "kres2" in model_name:
+            info["model_family"] = "Krea2"
+        elif (positive_node and positive_node.get("type") == "TextEncodeQwenImage21") or "qwen_image_2.1" in model_name or "qwen-image-2.1" in model_name:
+            info["model_family"] = "Qwen Image 2.1"
 
         clip_skip_node = _graph_first(nodes, ("CLIPSetLastLayer", "CLIPSkip"))
         clip_skip = _graph_widget_value(clip_skip_node, ("stop_at_clip_layer", "clip_skip", "clip_layer"))
@@ -1005,25 +1391,21 @@ class SaveWebPMeta:
         if emphasis_mode is not None:
             info["emphasis_mode"] = emphasis_mode
 
-        positive = _graph_text_node(workflow, nodes, negative=False)
-        negative = _graph_text_node(workflow, nodes, negative=True)
-        if positive:
+        positive, positive_resolved = _graph_text_node(workflow, nodes, negative=False, sampler=ksampler)
+        negative, negative_resolved = _graph_text_node(workflow, nodes, negative=True, sampler=ksampler)
+        if positive_resolved:
             info["prompt"] = positive
-        if negative:
+        if negative_resolved:
             info["negative_prompt"] = negative
-
-        loras = _extract_graph_loras(nodes)
-        if loras:
-            info["loras"] = loras
         return info
 
     def _extract_metadata(self, prompt=None, extra_pnginfo=None, id=None) -> Dict[str, Any]:
         # SaveImageLM-style: accept hidden id/prompt/extra_pnginfo, but only use structured data.
         # Never use id as metadata text; it is only a runtime key.
         info: Dict[str, Any] = {}
-        info.update(self._metadata_from_prompt(prompt))
         if isinstance(extra_pnginfo, dict):
-            info.update(self._metadata_from_workflow(extra_pnginfo.get("workflow")))
+            info.update(self._metadata_from_workflow(extra_pnginfo.get("workflow"), save_id=id))
+        info.update(self._metadata_from_prompt(prompt, save_id=id))
         return info
 
     def _build_a1111_parameters(self, info: Dict[str, Any], width: int, height: int) -> str:
@@ -1054,12 +1436,20 @@ class SaveWebPMeta:
             params.append(f"Sampler: {sampler_text}")
         if "cfg" in info:
             params.append(f"CFG scale: {info['cfg']}")
+        if "denoise" in info:
+            params.append(f"Denoising strength: {info['denoise']}")
         if "seed" in info:
             params.append(f"Seed: {info['seed']}")
         params.append(f"Size: {width}x{height}")
         model = _clean_model_name(info.get("model"))
         if model:
             params.append(f"Model: {model}")
+        if info.get("model_family"):
+            params.append(f"Model family: {info['model_family']}")
+        if info.get("text_encoder"):
+            params.append(f"Text encoder: {info['text_encoder']}")
+        if info.get("vae"):
+            params.append(f"VAE: {info['vae']}")
         lora_hashes = _lora_hashes_text(loras)
         if lora_hashes:
             params.append(lora_hashes)
@@ -1109,6 +1499,8 @@ class SaveWebPMeta:
 
     def save_webp(self, images, filename_prefix="ComfyUI", file_format="webp", quality=70, id=None, prompt=None, extra_pnginfo=None, **kwargs):
         info = self._extract_metadata(prompt=prompt, extra_pnginfo=extra_pnginfo, id=id)
+        info.setdefault("width", images[0].shape[1])
+        info.setdefault("height", images[0].shape[0])
         filename_prefix = self._format_filename(filename_prefix or "ComfyUI", info, prompt=prompt, extra_pnginfo=extra_pnginfo)
         file_format = _as_text(file_format).strip().lower()
         if file_format == "jpeg":

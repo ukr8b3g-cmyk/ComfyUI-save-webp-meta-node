@@ -23,8 +23,9 @@ Because ComfyUI and A1111-based tools use different samplers, schedulers, and gr
 
 ## Recent Change
 
-- Added `piexif>=1.1.3` to `pyproject.toml` so package-based installs can include the EXIF dependency automatically.
-- The missing-`piexif` runtime error now shows the install command for the active ComfyUI Python environment.
+- Added Qwen Image 2.1 and Krea2 metadata support, including output-slot-aware positive/negative prompt resolution.
+- Metadata now follows the image's active sampler, model, text encoder, VAE, and LoRA path when available. Disabled LoRAs are excluded.
+- Handles `ConditioningZeroOut`, `ComfySwitchNode`, and current ComfyUI `ResolutionSelector` workflows. Existing PNG/EXIF storage and `piexif>=1.1.3` remain unchanged.
 
 ## Metadata Compatibility
 
@@ -43,6 +44,10 @@ A1111-compatible fields include the following when available:
 - Seed
 - Size
 - Model
+- Model family
+- Text encoder
+- VAE
+- Denoising strength
 - LoRA tags
 - LoRA hashes
 - Clip skip
@@ -255,8 +260,9 @@ ComfyUI と A1111 系ではサンプラー、スケジューラー、ノード�
 
 ## 最近の変更
 
-- `pyproject.toml` に `piexif>=1.1.3` を追加し、インストール時に EXIF 用依存関係が入りやすくなりました。
-- `piexif` 未導入時のエラーに、ComfyUI の Python 環境へ入れるためのコマンドを表示するようにしました。
+- Qwen Image 2.1 と Krea2 のメタデータに対応し、同じノードの出力スロットから出る Positive / Negative を区別します。
+- 保存画像につながる Sampler、Model、Text Encoder、VAE、LoRA を優先して追跡し、無効な LoRA は除外します。
+- `ConditioningZeroOut`、`ComfySwitchNode`、現行 ComfyUI の `ResolutionSelector` に対応しました。PNG / EXIF の保存形式と `piexif>=1.1.3` は維持しています。
 
 ## メタデータ互換性
 
@@ -275,6 +281,10 @@ A1111 互換メタデータには、取得できる範囲で次の情報が含�
 - Seed
 - Size
 - Model
+- Model family
+- Text encoder
+- VAE
+- Denoising strength
 - LoRA tags
 - LoRA hashes
 - Clip skip
