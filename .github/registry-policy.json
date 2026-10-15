@@ -1,0 +1,9 @@
+{
+  "node": "comfyui-save-webp-meta-node",
+  "publisher": "ukr8b3g-cmyk",
+  "repository": "https://github.com/ukr8b3g-cmyk/ComfyUI-save-webp-meta-node",
+  "includes": [],
+  "license": {
+    "file": "LICENSE"
+  }
+}
