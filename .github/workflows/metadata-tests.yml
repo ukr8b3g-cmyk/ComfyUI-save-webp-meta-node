@@ -17,8 +17,6 @@ jobs:
       contents: write
     env:
       PYTHONDONTWRITEBYTECODE: '1'
-      SAVE_META_PROVIDER_SOURCES: ${{ runner.temp }}/metadata-provider-sources
-      METADATA_TEST_REPORT: ${{ runner.temp }}/metadata-test-result.json
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -34,18 +32,21 @@ jobs:
           import base64, hashlib, json, lzma, os, pathlib, subprocess, urllib.request
           repo = 'ukr8b3g-cmyk/ComfyUI-save-webp-meta-node'
           assert os.environ['GITHUB_REPOSITORY'] == repo
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              for key, name in [('SAVE_META_PROVIDER_SOURCES','metadata-provider-sources'),('METADATA_TEST_REPORT','metadata-test-result.json')]:
+                  output.write(key + '=' + str(pathlib.Path(os.environ['RUNNER_TEMP']) / name) + '\n')
           parts = ['a8da0201aa5f6bb5f605a6081322dc307fbb2b4e', '8226abdcc0d2f9d406d2f5d4136a1437e7d7072b', '7386249addef16e007562ea0cb2ac88e67c0307d']
           def read(suffix):
               request = urllib.request.Request('https://api.github.com/repos/' + repo + suffix, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
               with urllib.request.urlopen(request, timeout=30) as response:
                   return json.load(response)
-          packed = b''
-          for sha in parts:
+          def read_blob(sha):
               blob = read('/git/blobs/' + sha)
               assert blob['encoding'] == 'base64' and blob['sha'] == sha
               data = base64.b64decode(blob['content'])
               assert hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest() == sha
-              packed += data
+              return data
+          packed = b''.join(read_blob(sha) for sha in parts)
           assert hashlib.sha256(packed).hexdigest() == '6fd3152701c1a16e8a583903c52997f460608c16cacb9d2cf645bd26f828b91d'
           raw = lzma.decompress(packed, memlimit=256 * 1024 * 1024)
           assert len(raw) < 1_000_000
@@ -53,6 +54,11 @@ jobs:
           assert payload['source_base'] == '78d9fa96a67ff365cd2581fe9ccc726f5b63122f'
           assert len(payload['sha256']) == 21
           assert payload['delete'] == ['.github/workflows/metadata-test-deps.yml']
+          ci_path = '.github/workflows/metadata-tests.yml'
+          ci = read_blob('475fd6a509628f2c434acc166b450f65bfb6dd94')
+          assert hashlib.sha256(ci).hexdigest() == '17367ec31dac23aa4692eafbda0066d28b46b2dcaa725e8e01ab2ca01602365c'
+          payload['files'][ci_path] = ci.decode('utf-8')
+          payload['sha256'][ci_path] = hashlib.sha256(ci).hexdigest()
           allowed = {'.comfyignore','README.md','pyproject.toml','webp_save.py','CHANGELOG.md','.github/workflows/metadata-tests.yml','tests/test_metadata_resolver.py','tests/test_metadata_save_formats.py'}
           files = dict(payload['files'])
           for name, edit in payload['edits'].items():
@@ -78,7 +84,7 @@ jobs:
               target.write_bytes(data)
           for name in payload['delete']:
               pathlib.Path(name).unlink()
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'candidate-payload.json').write_bytes(raw)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'candidate-payload.json').write_text(json.dumps(payload), encoding='utf-8')
           print('Verified exact candidate:', len(files), 'files; no refs changed.')
       - name: Install existing test dependencies
         run: python -m pip install --disable-pip-version-check pillow numpy piexif==1.1.3
