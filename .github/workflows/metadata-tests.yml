@@ -1,0 +1,51 @@
+name: Metadata adapter verification
+on:
+  push:
+    branches: ['maintenance/metadata-v1.2.0']
+permissions:
+  contents: read
+jobs:
+  sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Collect public pinned sources without executing them
+        shell: python
+        run: |
+          import io, json, pathlib, subprocess, urllib.request, zipfile
+          pins = {
+              'save': ['ukr8b3g-cmyk/ComfyUI-save-webp-meta-node', '78d9fa96a67ff365cd2581fe9ccc726f5b63122f'],
+              'core': ['Comfy-Org/ComfyUI', '3541246a9c997f4b8c32f9f88f3c985d02021c79'],
+              'bbox': ['ukr8b3g-cmyk/Krea2-BBOX-Prompter', 'fd6d5edb8297d8c50ad45a8199ca523282f53832'],
+              'pose': ['ukr8b3g-cmyk/custom_nodes-krea2_bbox_pose_gesture_v1', '62f0197195e5a2a12002e5d5b0eaaf6e441cd1bb'],
+              'h3': ['ukr8b3g-cmyk/H3-Character-Sheet-Designer', '9244cb6abeac2daaeabd42c984948def55f8d7ce'],
+          }
+          with zipfile.ZipFile('metadata-sources.zip', 'w', zipfile.ZIP_DEFLATED) as out:
+              out.writestr('pins.json', json.dumps(pins, indent=2))
+              for alias, (repo, sha) in pins.items():
+                  request = urllib.request.Request(f'https://codeload.github.com/{repo}/zip/{sha}', headers={'User-Agent': 'metadata-source-verification'})
+                  with urllib.request.urlopen(request, timeout=90) as r:
+                      content = r.read()
+                  with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                      for member in archive.infolist():
+                          parts = pathlib.PurePosixPath(member.filename).parts[1:]
+                          if not parts or member.is_dir() or '..' in parts:
+                              continue
+                          rel = '/'.join(parts)
+                          # Only source, small bundled preset data, tests, and workflows; no images, weights, credentials or git directories.
+                          if pathlib.PurePosixPath(rel).suffix.lower() not in {'.py','.json','.yml','.yaml','.toml','.md','.txt','.js','.mjs','.cjs'} and rel not in {'.gitignore','.comfyignore','LICENSE'}:
+                              continue
+                          if member.file_size > 2_000_000:
+                              continue
+                          if alias == 'core' and not (rel in {'nodes.py','README.md','requirements.txt','execution.py'} or rel.startswith(('comfy_extras/','tests-unit/comfy_extras_test/','comfy/supported_models.py'))):
+                              continue
+                          out.writestr(alias + '/' + rel, archive.read(member))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metadata-pinned-sources
+          path: metadata-sources.zip
+          retention-days: 3
+          if-no-files-found: error
