@@ -11,7 +11,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Download existing runtime dependency without executing it
-        run: python -m pip download --no-deps --only-binary=:all: piexif==1.1.3 --dest wheels
+        run: |
+          python -m pip download --no-deps --only-binary=:all: piexif==1.1.3 --dest wheels
       - uses: actions/upload-artifact@v4
         with:
           name: metadata-offline-dependency
