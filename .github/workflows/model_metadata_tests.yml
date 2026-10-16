@@ -60,6 +60,7 @@ jobs:
         if: always()
         run: |
           mkdir -p evidence
+          python -m pip download --no-deps piexif==1.1.3 -d evidence
           git -C source archive --format=zip HEAD -o "$GITHUB_WORKSPACE/evidence/source.zip"
           python - <<'PY'
           import pathlib, zipfile
