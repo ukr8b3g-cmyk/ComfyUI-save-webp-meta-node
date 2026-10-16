@@ -21,7 +21,13 @@ Because ComfyUI and A1111-based tools use different samplers, schedulers, and gr
 
 [Japanese / 日本語](#japanese)
 
-## Recent Change
+## v1.2.0: model and prompt-path metadata
+
+Save WEBP Meta now supports H3 static-frame/custom-sampler paths, paired image-edit encoders, multiple text encoders, native LoRA stacks, and source-verified H3 Designer / Krea2 BBOX pure prompt compilers. It uses only the saving image's upstream execution path and preserves unknown values rather than borrowing another sampler's settings. Actual output dimensions are used after resizing.
+
+See [supported paths, source pins and limitations](docs/MODEL_SUPPORT_v1.2.0.md) and [change history](CHANGELOG.md). This is metadata extraction support, not a claim that every model was GPU-tested. The public node and existing image formats are unchanged; no new mandatory dependency was added.
+
+## Recent Change (v1.1.0 history)
 
 - Added Qwen Image 2.1 and Krea2 metadata support, including output-slot-aware positive/negative prompt resolution.
 - Metadata now follows the image's active sampler, model, text encoder, VAE, and LoRA path when available. Disabled LoRAs are excluded.
@@ -258,7 +264,13 @@ SD Prompt Reader、Tiefsee、Infinite Image Browsing などのプロンプトビ
 A1111 系の Stable Diffusion WebUI、Forge、NEO などでは、保存画像から一部の生成パラメータを読み取れる場合があります。
 ComfyUI と A1111 系ではサンプラー、スケジューラー、ノード構造が異なるため、完全に同じ結果を再現できるとは限りません。
 
-## 最近の変更
+## v1.2.0：画像モデルとプロンプト経路の対応拡張
+
+H3静止画・Custom Sampler・複数Text Encoder・標準LoRAスタックと、検証済みH3 Designer／Krea2 BBOXの最終プロンプト取得を追加しました。保存する画像の上流だけを追跡し、未知の値は別Samplerから補いません。保存時の実画像寸法を記録します。
+
+[対応範囲・検証済みソース・制約](docs/MODEL_SUPPORT_v1.2.0.md)を確認してください。未知のMiniBoxや変更されたコンパイラーではプロンプトは部分対応となりますが、IMAGEと元Workflowの保存は維持します。公開入力・保存形式・必須依存関係は変更していません。実モデルのGPU生成や実画面の受け入れ確認とは区別します。
+
+## 最近の変更（v1.1.0の履歴）
 
 - Qwen Image 2.1 と Krea2 のメタデータに対応し、同じノードの出力スロットから出る Positive / Negative を区別します。
 - 保存画像につながる Sampler、Model、Text Encoder、VAE、LoRA を優先して追跡し、無効な LoRA は除外します。

@@ -1,0 +1,681 @@
+{
+  "schema_version": "1.1",
+  "status": "v1.1_spec_extended_not_implemented",
+  "checked_date": "2026-10-16",
+  "baseline_core_version": "0.40.0",
+  "baseline_core_commit": "3541246a9c997f4b8c32f9f88f3c985d02021c79",
+  "target_repository_commit": "78d9fa96a67ff365cd2581fe9ccc726f5b63122f",
+  "target_existing_package_version": "1.1.0",
+  "historical_compatibility_version": "0.4.0",
+  "coverage_definition": "This is a family/profile planning matrix, not an exhaustive list of all fine-tunes or current catalog entries. Saving normal IMAGE tensors is separate from exact generation metadata extraction. No model generation was performed.",
+  "models": [
+    {
+      "id": "N01",
+      "family_or_route": "SD 1.x / SD 2.x / unCLIP",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "標準Samplerを維持。unCLIPの画像条件はtext promptが存在しない場合を区別。",
+      "sources": [
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N02",
+      "family_or_route": "SDXL / SDXL Turbo / Refiner / SDXL-derived checkpoints",
+      "origin": "native",
+      "planned_profile": "standard_multitext",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "text_g/text_lと生成段階を保持。任意checkpoint名だけからarchitectureを断定しない。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N03",
+      "family_or_route": "SD3 / SD3.5",
+      "origin": "native",
+      "planned_profile": "sd3",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "CLIPTextEncodeSD3／TripleCLIPLoader。encoder別textとempty_paddingを保持。",
+      "sources": [
+        "S05",
+        "S13"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N04",
+      "family_or_route": "Stable Cascade B/C",
+      "origin": "native",
+      "planned_profile": "multistage",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "B/C段階を区別。decoder段の設定を前段で置換せず、2段生成を単一の完全再現レシピにしない。",
+      "sources": [
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N05",
+      "family_or_route": "PixArt Alpha / Sigma",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "標準Samplerと確認済みencoder/loaderを追跡。familyの推測を確定値にしない。",
+      "sources": [
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N06",
+      "family_or_route": "AuraFlow",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "標準Samplerと実際のIMAGE寸法を使用。",
+      "sources": [
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N07",
+      "family_or_route": "HunyuanDiT / HunyuanDiT1",
+      "origin": "native",
+      "planned_profile": "hunyuan_multitext",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "CLIPTextEncodeHunyuanDiTのbertとmt5xlを別々に記録。",
+      "sources": [
+        "S05",
+        "S12"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N08",
+      "family_or_route": "Hunyuan Image 2.1 / Refiner",
+      "origin": "native",
+      "planned_profile": "multistage",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "Hunyuan encoder/loaderを追跡。Refinerの最終段と前段を分離。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N09",
+      "family_or_route": "FLUX.1 dev / schnell / inpaint / Kontext",
+      "origin": "native",
+      "planned_profile": "flux",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "KSampler／CustomAdvanced、BasicGuiderに対応。embedded guidanceはCFGと別。",
+      "sources": [
+        "S04",
+        "S05",
+        "S10"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N10",
+      "family_or_route": "FLUX.2 / Klein",
+      "origin": "native",
+      "planned_profile": "flux2",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "Flux2 latentと編集参照を追跡。CLIP typeだけでdev/Klein等のvariantを断定しない。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06",
+        "S10"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N11",
+      "family_or_route": "Qwen Image / Qwen Image 2512",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "qwen_imageという共通CLIP typeだけではモデル改訂版を特定できない。",
+      "sources": [
+        "S04",
+        "S05",
+        "S09",
+        "S22"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N12",
+      "family_or_route": "Qwen Image Edit / Edit Plus / 2509 / 2511",
+      "origin": "native",
+      "planned_profile": "qwen_edit",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "TextEncodeQwenImageEdit／Plus。参照画像を生成IMAGEの出所にしない。",
+      "sources": [
+        "S04",
+        "S09",
+        "S22"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N13",
+      "family_or_route": "Qwen-Image 2.1 text-to-image / image-edit",
+      "origin": "native",
+      "planned_profile": "qwen21",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "既存の基本対応にCustom sampler、slot、RGBA、後処理経路を追加。",
+      "sources": [
+        "S01",
+        "S02",
+        "S09"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N14",
+      "family_or_route": "Qwen Image Layered",
+      "origin": "native",
+      "planned_profile": "qwen_layered",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "受信IMAGEごとに保存。batch位置だけからlayer番号やseedを推測しない。",
+      "sources": [
+        "S09",
+        "S22"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N15",
+      "family_or_route": "Krea2",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "既存対応を維持し、共通Samplerと標準LoRA stack対応を拡張。 BBOX Prompter SuiteのCanvas→Prompt→Export→Effect経路は独立プロファイルKB01で扱う。",
+      "sources": [
+        "S01",
+        "S02",
+        "S04",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N16",
+      "family_or_route": "Anima",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "既存AnimaRegionalCanvasを維持。独自compiler結果は明示providerが必要。",
+      "sources": [
+        "S01",
+        "S02",
+        "S04",
+        "S05"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N17",
+      "family_or_route": "Lumina Image 2.0",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "接続されているencoder/Samplerを使用。共有encoder名からfamilyを断定しない。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N18",
+      "family_or_route": "HiDream I1 / E1.1",
+      "origin": "native",
+      "planned_profile": "hidream",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "4種類のtext fieldとQuadrupleCLIPLoaderを記録。",
+      "sources": [
+        "S04",
+        "S05",
+        "S11"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N19",
+      "family_or_route": "HiDream O1",
+      "origin": "native",
+      "planned_profile": "pixel_space",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "正負のReferenceImagesを追跡。pixel-space latentにVAEがあると仮定しない。",
+      "sources": [
+        "S05",
+        "S19"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N20",
+      "family_or_route": "Chroma",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "標準producerを追跡。conditioning wrapperの意味を保持。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N21",
+      "family_or_route": "Chroma Radiance",
+      "origin": "native",
+      "planned_profile": "pixel_space",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "IMAGE変換profileの確認が必要。未知のconverterではpartialとし、VAEを捏造しない。",
+      "sources": [
+        "S05"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N22",
+      "family_or_route": "LongCat Image / Image Edit",
+      "origin": "native",
+      "planned_profile": "standard_edit",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "ReferenceLatentを使う場合も、入力参照画像と最終IMAGEを分離。",
+      "sources": [
+        "S04",
+        "S05",
+        "S14"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N23",
+      "family_or_route": "OmniGen2",
+      "origin": "native",
+      "planned_profile": "standard_edit",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "共通Sampler/loader項目を抽出。固有edit encoderはschema確認前に完全対応扱いしない。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N24",
+      "family_or_route": "Boogu / Boogu Edit",
+      "origin": "native",
+      "planned_profile": "boogu",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "TextEncodeBooguEditのoutput0=positive、1=negativeを固定。",
+      "sources": [
+        "S04",
+        "S05",
+        "S18"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N25",
+      "family_or_route": "JoyImage / JoyImage Edit",
+      "origin": "native",
+      "planned_profile": "joyimage",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "TextEncodeJoyImageEditはconditioning出力1個と参照group。",
+      "sources": [
+        "S04",
+        "S05",
+        "S17"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N26",
+      "family_or_route": "MageFlow / MageFlow Edit",
+      "origin": "native",
+      "planned_profile": "mage",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "TextEncodeMageFlowEditの正負/latentを区別。幅/高さの独立fallbackに注意。",
+      "sources": [
+        "S04",
+        "S05",
+        "S16"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N27",
+      "family_or_route": "Ideogram 4 (local)",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "ローカル版と同ブランドAPI版を分離。接続ファイルとnode roleを根拠にする。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N28",
+      "family_or_route": "Microsoft Lens",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "CLIP type lensと共通Sampler経路。LLM出力を再実行しない。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N29",
+      "family_or_route": "PixelDiT",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "CLIP type pixeldit。実寸とGraphで明示されたprecisionのみ記録。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N30",
+      "family_or_route": "Kandinsky 5 Image",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "同ブランドのImage/Videoをtask/loader証拠で区別。",
+      "sources": [
+        "S04",
+        "S05",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N31",
+      "family_or_route": "Ernie Image",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "共通Samplerと明示ファイルを使用。名前変更された重みからvariantを断定しない。",
+      "sources": [
+        "S04",
+        "S05"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N32",
+      "family_or_route": "Z-Image Base / Turbo",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "Steps/Guidanceは選択Graphの値。Turboという名前から既定値を補わない。",
+      "sources": [
+        "S04",
+        "S05",
+        "S22"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N33",
+      "family_or_route": "ZImagePixelSpace / PiD",
+      "origin": "native",
+      "planned_profile": "pixel_space",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "モデル登録は確認。特殊なIMAGE変換はprofileのpin前にはpartial。",
+      "sources": [
+        "S05"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N34",
+      "family_or_route": "MingImage",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "モデル登録は確認。固有text schemaの詳細照合が未完の箇所はunknown。",
+      "sources": [
+        "S05"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N35",
+      "family_or_route": "SenseNova U1.5",
+      "origin": "native",
+      "planned_profile": "pixel_space",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "モデル登録は確認。固有task wrapperはpin後に完全抽出の対象とする。",
+      "sources": [
+        "S05"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N36",
+      "family_or_route": "Cosmos Predict2 text-to-image",
+      "origin": "native",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "画像基準はT2I taskのみ。VideoはIMAGEへの変換後を扱う。",
+      "sources": [
+        "S05",
+        "S22"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N37",
+      "family_or_route": "Ovis Image",
+      "origin": "official_catalog",
+      "planned_profile": "standard",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "公式docsとCLIP type ovisを確認。familyの厳密な特定はGraph証拠次第。",
+      "sources": [
+        "S06",
+        "S22"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "N38",
+      "family_or_route": "NewBie Image",
+      "origin": "official_catalog",
+      "planned_profile": "standard_multitext",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "公式docsとDualCLIPLoader type newbieを確認。2つのencoder名を保持。",
+      "sources": [
+        "S06",
+        "S22"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "H01",
+      "family_or_route": "MiniMax H3 static output / selected video frame",
+      "origin": "native_av_to_image",
+      "planned_profile": "h3",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "H3条件→Sampler→VAEDecode→ImageFromBatch→保存の主経路を追跡。",
+      "sources": [
+        "S08",
+        "S24"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "H02",
+      "family_or_route": "H3 Character Sheet Designer -> MiniMax H3",
+      "origin": "custom_frontend_to_native",
+      "planned_profile": "h3_designer",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_profile_conditional",
+      "notes": "state_jsonは最終promptではない。検証済み純粋compiler providerがない場合はprompt unknown。",
+      "sources": [
+        "S08",
+        "S23",
+        "S24"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "G01",
+      "family_or_route": "Other native video model decoded frames",
+      "origin": "converted_image",
+      "planned_profile": "partial",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "partial",
+      "notes": "IMAGEとraw Graphは保存。動画固有の時間情報は本リリースの完全対応認定外。",
+      "sources": [
+        "S04",
+        "S05"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "G02",
+      "family_or_route": "Partner/API image generators on comfy.org",
+      "origin": "partner_api",
+      "planned_profile": "partial",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "partial",
+      "notes": "返却IMAGEとraw Graphは保存。提出prompt/modelはpin済みAPI profileのみ抽出し、内部Steps等はunknown。",
+      "sources": [
+        "S21"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "G03",
+      "family_or_route": "Models/nodes added after the pinned v0.40.0 baseline",
+      "origin": "post_baseline",
+      "planned_profile": "partial",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "partial",
+      "notes": "v0.40.0標準対応とは宣言しない。IMAGEは保存できても未確認nodeの情報抽出はpartial。",
+      "sources": [
+        "S21",
+        "S25"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "G04",
+      "family_or_route": "LoadImage / external image without workflow metadata",
+      "origin": "external_image",
+      "planned_profile": "external",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "external",
+      "notes": "近くのSamplerを探さない。実寸は既知、seed/model/promptは不明。",
+      "sources": [
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "G05",
+      "family_or_route": "3D / mask / audio / VIDEO / LATENT objects directly",
+      "origin": "non_image",
+      "planned_profile": "not_direct_input",
+      "image_save": "requires_upstream_IMAGE_conversion",
+      "generation_metadata": "not_direct_input",
+      "notes": "IMAGE入力へ直接接続不可。既存ノードで上流変換し、saverで生成やdecodeを追加しない。",
+      "sources": [
+        "S04",
+        "S06"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    },
+    {
+      "id": "KB01",
+      "family_or_route": "Krea2 BBOX / Mini-BBOX prompt-pipeline (suite known IDs only)",
+      "origin": "custom_extension_on_comfy_core",
+      "planned_profile": "krea2_bbox_deterministic_compiler",
+      "image_save": "existing_IMAGE_codec_path",
+      "generation_metadata": "planned_adapter_conditional_on_pinned_node_ids_and_literal_inputs",
+      "notes": "添付PNGにはworkflowなし。正式なMiniBox node IDは未同定。Krea2ElementFramingV1Canvas/Prompt/JSONExportV1＋BBOXPromptEffect/BackgroundEffect＋任意PoseGestureInjectorV1は別途公開ソースで確認した。input全解決の場合のみexact prompt。",
+      "sources": [
+        "S29",
+        "S30",
+        "S31",
+        "S32"
+      ],
+      "runtime_test_status": "NOT_RUN"
+    }
+  ],
+  "implementation_note": "v1.2.0: see MODEL_SUPPORT_v1.2.0.md and tests. Original plan fields are design history, not GPU/front-end certification."
+}

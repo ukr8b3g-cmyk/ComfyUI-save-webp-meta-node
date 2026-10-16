@@ -1,0 +1,542 @@
+{
+  "version": 1,
+  "nodes": {
+    "Krea2ElementFramingV1Canvas": {
+      "provider_id": "bbox-source-pinned-20261016",
+      "class_name": "Krea2ElementFramingV1Canvas",
+      "module_file": "nodes_element_framing.py",
+      "inputs": {
+        "width": {
+          "role": "scalar",
+          "type": "INT",
+          "function_optional": false
+        },
+        "height": {
+          "role": "scalar",
+          "type": "INT",
+          "function_optional": false
+        },
+        "preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "layout_data": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "camera_data": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "grid_mode": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "ui_language": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "camera_set_data": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "canvas_preset_data": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "width_override": {
+          "role": "scalar",
+          "type": "INT",
+          "function_optional": true
+        },
+        "height_override": {
+          "role": "scalar",
+          "type": "INT",
+          "function_optional": true
+        }
+      },
+      "outputs": [
+        "KREA2_ELEMENT_FRAMING_DATA"
+      ],
+      "files": {
+        "nodes_element_framing.py": "2d53c928d41f37279d8d759465ecbc6c85927c7106eea4e034e831b0126646db",
+        "web/background_presets.json": "8906807cd78f652ae79d09f7e3b394d5ec64183d0c157947d7809f9b3e903ca3"
+      }
+    },
+    "Krea2ElementFramingV1Prompt": {
+      "provider_id": "bbox-source-pinned-20261016",
+      "class_name": "Krea2ElementFramingV1Prompt",
+      "module_file": "nodes_element_framing.py",
+      "inputs": {
+        "scene": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "background": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "red_prompt": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "blue_prompt": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "yellow_prompt": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "green_prompt": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "magenta_prompt": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "red_type": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "blue_type": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "yellow_type": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "green_type": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "magenta_type": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "prompt_ui_data": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "red_framing": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "blue_framing": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "yellow_framing": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "green_framing": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "magenta_framing": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "red_angle": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "blue_angle": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "yellow_angle": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "green_angle": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "magenta_angle": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        }
+      },
+      "outputs": [
+        "KREA2_ELEMENT_PROMPT_DATA"
+      ],
+      "files": {
+        "nodes_element_framing.py": "2d53c928d41f37279d8d759465ecbc6c85927c7106eea4e034e831b0126646db",
+        "web/background_presets.json": "8906807cd78f652ae79d09f7e3b394d5ec64183d0c157947d7809f9b3e903ca3"
+      }
+    },
+    "Krea2ElementJSONExportV1": {
+      "provider_id": "bbox-source-pinned-20261016",
+      "class_name": "Krea2ElementJSONExportV1",
+      "module_file": "nodes_element_framing.py",
+      "inputs": {
+        "framing_data": {
+          "role": "framing",
+          "type": "KREA2_ELEMENT_FRAMING_DATA",
+          "function_optional": false
+        },
+        "prompt_ui_data": {
+          "role": "prompt_data",
+          "type": "KREA2_ELEMENT_PROMPT_DATA",
+          "function_optional": false
+        },
+        "bbox_mode": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "output_format": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "output_mode": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "skip_empty": {
+          "role": "scalar",
+          "type": "BOOLEAN",
+          "function_optional": true
+        },
+        "auto_position_hint": {
+          "role": "scalar",
+          "type": "BOOLEAN",
+          "function_optional": true
+        }
+      },
+      "outputs": [
+        "STRING",
+        "INT",
+        "INT"
+      ],
+      "files": {
+        "nodes_element_framing.py": "2d53c928d41f37279d8d759465ecbc6c85927c7106eea4e034e831b0126646db",
+        "web/background_presets.json": "8906807cd78f652ae79d09f7e3b394d5ec64183d0c157947d7809f9b3e903ca3"
+      }
+    },
+    "Krea2BBOXPromptEffect": {
+      "provider_id": "bbox-source-pinned-20261016",
+      "class_name": "Krea2BBOXPromptEffect",
+      "module_file": "nodes_element_framing.py",
+      "inputs": {
+        "prompt_in": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "enable_effect": {
+          "role": "scalar",
+          "type": "BOOLEAN",
+          "function_optional": true
+        },
+        "category": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "mode": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "custom_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "style_boost": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        }
+      },
+      "outputs": [
+        "STRING",
+        "STRING"
+      ],
+      "files": {
+        "nodes_element_framing.py": "2d53c928d41f37279d8d759465ecbc6c85927c7106eea4e034e831b0126646db",
+        "web/background_presets.json": "8906807cd78f652ae79d09f7e3b394d5ec64183d0c157947d7809f9b3e903ca3"
+      }
+    },
+    "Krea2PromptEffect": {
+      "provider_id": "bbox-source-pinned-20261016",
+      "class_name": "Krea2PromptEffect",
+      "module_file": "nodes_element_framing.py",
+      "inputs": {
+        "prompt_in": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "enable_effect": {
+          "role": "scalar",
+          "type": "BOOLEAN",
+          "function_optional": true
+        },
+        "category": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "mode": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "custom_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "style_boost": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        }
+      },
+      "outputs": [
+        "STRING",
+        "STRING"
+      ],
+      "files": {
+        "nodes_element_framing.py": "2d53c928d41f37279d8d759465ecbc6c85927c7106eea4e034e831b0126646db",
+        "web/background_presets.json": "8906807cd78f652ae79d09f7e3b394d5ec64183d0c157947d7809f9b3e903ca3"
+      },
+      "registered_as": "Krea2BBOXPromptEffect"
+    },
+    "Krea2BackgroundEffect": {
+      "provider_id": "bbox-source-pinned-20261016",
+      "class_name": "Krea2BackgroundEffect",
+      "module_file": "nodes_element_framing.py",
+      "inputs": {
+        "prompt_in": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "enable_effect": {
+          "role": "scalar",
+          "type": "BOOLEAN",
+          "function_optional": true
+        },
+        "category": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "mode": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "custom_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "style_boost": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        }
+      },
+      "outputs": [
+        "STRING",
+        "STRING"
+      ],
+      "files": {
+        "nodes_element_framing.py": "2d53c928d41f37279d8d759465ecbc6c85927c7106eea4e034e831b0126646db",
+        "web/background_presets.json": "8906807cd78f652ae79d09f7e3b394d5ec64183d0c157947d7809f9b3e903ca3"
+      }
+    },
+    "H3CharacterSheetDesigner": {
+      "provider_id": "h3-source-pinned-20261016",
+      "class_name": "H3CharacterSheetDesigner",
+      "module_file": "node.py",
+      "inputs": {
+        "state_json": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        }
+      },
+      "outputs": [
+        "STRING",
+        "INT",
+        "INT"
+      ],
+      "files": {
+        "node.py": "5918823058b700201490d11c4fc24d8e6a5b71fa282c31ec4c24984186779676",
+        "compiler.py": "984b343762bafea0473bddefc1c07d285ced6498e0afde891d1ad73d60940082"
+      }
+    },
+    "Krea2BBOXPoseGestureInjectorV1": {
+      "provider_id": "pose-source-pinned-20261016",
+      "class_name": "Krea2BBOXPoseGestureInjectorV1",
+      "module_file": "nodes_pose_gesture_injector.py",
+      "inputs": {
+        "prompt_ui_data": {
+          "role": "prompt_data",
+          "type": "KREA2_ELEMENT_PROMPT_DATA",
+          "function_optional": false
+        },
+        "enable_pose_preset": {
+          "role": "scalar",
+          "type": "BOOLEAN",
+          "function_optional": false
+        },
+        "target_slot": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "human_type": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "base_pose_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "arm_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "right_hand_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "left_hand_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "torso_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "gaze_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "head_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "lower_body_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "sitting_lying_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "performance_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "pair_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "strength": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "stabilizer": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "merge_style": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": false
+        },
+        "sitting_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        },
+        "lying_preset": {
+          "role": "string",
+          "type": "STRING",
+          "function_optional": true
+        }
+      },
+      "outputs": [
+        "KREA2_ELEMENT_PROMPT_DATA",
+        "STRING",
+        "STRING"
+      ],
+      "files": {
+        "nodes_pose_gesture_injector.py": "2e8b6e15ce52bf9df45b3678958594a6b8d7b2bcdcec1fb11bcdfa1aed399703",
+        "pose_gesture_presets.json": "19c07a54f5dcad874d9f226d53405797a0bb6cf53d4d7bd854930befd9644b83"
+      }
+    }
+  }
+}

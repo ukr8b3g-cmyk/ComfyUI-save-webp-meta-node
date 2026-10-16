@@ -1,20 +1,25 @@
-name: Prepare verified metadata v1.2.0 candidate
+name: Metadata adapter verification
 on:
   push:
-    branches: ['maintenance/metadata-v1.2.0']
-    paths: ['.github/workflows/metadata-tests.yml']
+    branches: ['main', 'maintenance/metadata-v1.2.0']
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: prepare-metadata-v1.2.0
+  group: metadata-tests-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  candidate:
-    if: github.repository == 'ukr8b3g-cmyk/ComfyUI-save-webp-meta-node'
-    runs-on: ubuntu-24.04
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: '3.10'
+          - os: windows-latest
+            python: '3.12'
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
@@ -23,119 +28,49 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          python-version: '3.12'
-      - name: Reconstruct only the content-hash-verified candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
+          python-version: ${{ matrix.python }}
+      - name: Set isolated test paths
         shell: python
         run: |
-          import base64, hashlib, json, lzma, os, pathlib, subprocess, urllib.request
-          repo = 'ukr8b3g-cmyk/ComfyUI-save-webp-meta-node'
-          assert os.environ['GITHUB_REPOSITORY'] == repo
+          import os
+          from pathlib import Path
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
-              for key, name in [('SAVE_META_PROVIDER_SOURCES','metadata-provider-sources'),('METADATA_TEST_REPORT','metadata-test-result.json')]:
-                  output.write(key + '=' + str(pathlib.Path(os.environ['RUNNER_TEMP']) / name) + '\n')
-          parts = ['a8da0201aa5f6bb5f605a6081322dc307fbb2b4e', '8226abdcc0d2f9d406d2f5d4136a1437e7d7072b', '7386249addef16e007562ea0cb2ac88e67c0307d']
-          def read(suffix):
-              request = urllib.request.Request('https://api.github.com/repos/' + repo + suffix, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  return json.load(response)
-          def read_blob(sha):
-              blob = read('/git/blobs/' + sha)
-              assert blob['encoding'] == 'base64' and blob['sha'] == sha
-              data = base64.b64decode(blob['content'])
-              assert hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest() == sha
-              return data
-          packed = b''.join(read_blob(sha) for sha in parts)
-          assert hashlib.sha256(packed).hexdigest() == '6fd3152701c1a16e8a583903c52997f460608c16cacb9d2cf645bd26f828b91d'
-          raw = lzma.decompress(packed, memlimit=256 * 1024 * 1024)
-          assert len(raw) < 1_000_000
-          payload = json.loads(raw)
-          assert payload['source_base'] == '78d9fa96a67ff365cd2581fe9ccc726f5b63122f'
-          assert len(payload['sha256']) == 21
-          assert payload['delete'] == ['.github/workflows/metadata-test-deps.yml']
-          ci_path = '.github/workflows/metadata-tests.yml'
-          ci = read_blob('475fd6a509628f2c434acc166b450f65bfb6dd94')
-          assert hashlib.sha256(ci).hexdigest() == '17367ec31dac23aa4692eafbda0066d28b46b2dcaa725e8e01ab2ca01602365c'
-          payload['files'][ci_path] = ci.decode('utf-8')
-          payload['sha256'][ci_path] = hashlib.sha256(ci).hexdigest()
-          allowed = {'.comfyignore','README.md','pyproject.toml','webp_save.py','CHANGELOG.md','.github/workflows/metadata-tests.yml','tests/test_metadata_resolver.py','tests/test_metadata_save_formats.py'}
-          files = dict(payload['files'])
-          for name, edit in payload['edits'].items():
-              base = subprocess.check_output(['git', 'show', 'HEAD:' + name])
-              assert hashlib.sha256(base).hexdigest() == edit['base_sha256'], name
-              text = base.decode('utf-8')
-              previous = len(text)
-              for start, end, replacement in reversed(edit['changes']):
-                  assert 0 <= start <= end <= previous
-                  text = text[:start] + replacement + text[end:]
-                  previous = start
-              files[name] = text
-          assert set(files) == set(payload['sha256'])
-          for name, text in files.items():
-              path = pathlib.PurePosixPath(name)
-              assert not path.is_absolute() and '..' not in path.parts
-              assert name in allowed or path.parts[0] in {'metadata_resolver','docs','tools'}, name
-              data = text.encode('utf-8')
-              assert hashlib.sha256(data).hexdigest() == payload['sha256'][name], name
-              target = pathlib.Path(name)
-              assert not target.is_symlink()
-              target.parent.mkdir(parents=True, exist_ok=True)
-              target.write_bytes(data)
-          for name in payload['delete']:
-              pathlib.Path(name).unlink()
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'candidate-payload.json').write_text(json.dumps(payload), encoding='utf-8')
-          print('Verified exact candidate:', len(files), 'files; no refs changed.')
-      - name: Install existing test dependencies
+              for key, name in [('SAVE_META_PROVIDER_SOURCES', 'metadata-provider-sources'), ('METADATA_TEST_REPORT', 'metadata-test-result.json')]:
+                  output.write(key + '=' + str(Path(os.environ['RUNNER_TEMP']) / name) + '\n')
+      - name: Install existing image-test dependencies
         run: python -m pip install --disable-pip-version-check pillow numpy piexif==1.1.3
-      - name: Fetch pinned test-only providers
+      - name: Fetch pinned pure provider sources for parity tests
         run: python -B tools/fetch_test_sources.py
-      - name: Run unchanged regressions, provider parity and actual image codecs
+      - name: Validate syntax, original regressions, provider parity and five formats
         run: python -B tools/validate_metadata.py
-      - name: Create verified Git objects without advancing any branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: python
-        run: |
-          import base64, hashlib, json, os, pathlib, subprocess, urllib.request
-          repo = 'ukr8b3g-cmyk/ComfyUI-save-webp-meta-node'
-          parent = os.environ['GITHUB_SHA']
-          def api(suffix, data=None):
-              body = json.dumps(data).encode() if data is not None else None
-              request = urllib.request.Request('https://api.github.com/repos/' + repo + suffix, data=body, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json','Content-Type':'application/json'})
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  return json.load(response)
-          assert api('/git/ref/heads/maintenance/metadata-v1.2.0')['object']['sha'] == parent, 'Staging branch advanced'
-          assert api('/git/ref/heads/main')['object']['sha'] == '78d9fa96a67ff365cd2581fe9ccc726f5b63122f', 'Main advanced'
-          payload = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'candidate-payload.json').read_bytes())
-          expected = set(payload['sha256']) | set(payload['delete'])
-          changed = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
-          changed |= set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'], text=True).splitlines())
-          assert changed == expected, (changed - expected, expected - changed)
-          subprocess.run(['git','diff','--check'], check=True)
-          entries = []
-          for name, digest in sorted(payload['sha256'].items()):
-              data = pathlib.Path(name).read_bytes()
-              assert hashlib.sha256(data).hexdigest() == digest, name
-              git_sha = hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
-              blob = api('/git/blobs', {'content': base64.b64encode(data).decode(), 'encoding':'base64'})
-              assert blob['sha'] == git_sha
-              entries.append({'path':name,'mode':'100644','type':'blob','sha':git_sha})
-          entries.extend({'path':name,'mode':'100644','type':'blob','sha':None} for name in payload['delete'])
-          tree = api('/git/trees', {'base_tree':api('/git/commits/' + parent)['tree']['sha'], 'tree':entries})
-          message = 'Add image-scoped metadata resolution, H3 and Krea2 BBOX support for v1.2.0\n\nImplement approved spec v1.1 with typed output-slot traversal, custom samplers, native LoRA stacks, pinned pure compiler providers and exact saved-image dimensions. Preserve original regressions and PNG/EXIF formats; add five-codec and safety tests. No new runtime dependencies or model/GPU execution.'
-          commit = api('/git/commits', {'message':message,'tree':tree['sha'],'parents':[parent]})
-          attestation = {'parent':parent,'commit':commit['sha'],'tree':tree['sha'],'files':payload['sha256'],'entries':entries,'validation':json.loads(pathlib.Path(os.environ['METADATA_TEST_REPORT']).read_text())}
-          pathlib.Path(os.environ['RUNNER_TEMP'],'candidate-attestation.json').write_text(json.dumps(attestation,indent=2),encoding='utf-8')
-          print('VALIDATED_CANDIDATE_COMMIT=' + commit['sha'])
-          print('No branch, tag or release was advanced by this job.')
-      - name: Preserve verification evidence
+      - name: Preserve validation result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: metadata-candidate-attestation
-          path: |
-            ${{ runner.temp }}/candidate-attestation.json
-            ${{ runner.temp }}/metadata-test-result.json
+          name: metadata-result-${{ matrix.os }}-${{ matrix.python }}
+          path: ${{ runner.temp }}/metadata-test-result.json
           if-no-files-found: error
           retention-days: 14
+  release-v1-2-0:
+    needs: tests
+    if: github.repository == 'ukr8b3g-cmyk/ComfyUI-save-webp-meta-node' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    concurrency:
+      group: authorized-save-webp-release-v1.2.0
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Release only the authorized v1.2.0 source after both test gates
+        run: python -B tools/release_v1_2_0.py
