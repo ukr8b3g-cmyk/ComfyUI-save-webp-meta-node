@@ -6,3 +6,6 @@ Thumbs.db
 
 # Release automation is development tooling, not part of the node package.
 /.github/
+
+# Development-only verification and release coordination.
+/tools/

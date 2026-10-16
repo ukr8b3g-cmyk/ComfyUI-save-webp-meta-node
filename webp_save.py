@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -7,6 +8,11 @@ import sys
 from typing import Any, Dict, Iterable, Optional
 
 import folder_paths
+
+try:
+    from .metadata_resolver import resolve_metadata, to_legacy_info, MetadataSession
+except ImportError:
+    from metadata_resolver import resolve_metadata, to_legacy_info, MetadataSession
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
@@ -98,7 +104,7 @@ def _clean_model_name(value: Any) -> str:
     text = _as_text(value).strip()
     if not text:
         return ""
-    return os.path.splitext(os.path.basename(text))[0]
+    return os.path.splitext(os.path.basename(text.replace("\\", "/")))[0]
 
 
 def _sanitize_filename_part(value: Any) -> str:
@@ -779,7 +785,7 @@ def _format_loras_from_any(value: Any) -> str:
 def _format_lora_tag(name: Any, strength: Any) -> str:
     name_text = _lora_basename(name)
     try:
-        strength_text = f"{float(strength):.1f}"
+        strength_text = f"{float(strength):.15g}"
     except Exception:
         strength_text = _as_text(strength).strip() or "1.0"
     return f"<lora:{name_text}:{strength_text}>"
@@ -808,7 +814,7 @@ def _get_lora_scanner() -> Any:
 
     for registry in registries:
         try:
-            scanner = registry.get_service_sync("lora_scanner")
+            scanner = getattr(registry, "_services", {}).get("lora_scanner")
         except Exception:
             scanner = None
         if scanner is not None and hasattr(scanner, "get_hash_by_filename"):
@@ -818,36 +824,23 @@ def _get_lora_scanner() -> Any:
 
 def _lora_metadata_hash_by_name(candidates: Iterable[str]) -> str:
     try:
-        lora_dirs = folder_paths.get_folder_paths("loras")
+        directories = folder_paths.get_folder_paths("loras")
     except Exception:
-        lora_dirs = []
-
-    candidate_bases = {_lora_basename(candidate) for candidate in candidates if candidate}
-    candidate_files = set()
-    for base in candidate_bases:
-        candidate_files.add(f"{base}.metadata.json")
-        candidate_files.add(f"{base}.safetensors.metadata.json")
-
-    for lora_dir in lora_dirs:
-        for root, _dirs, files in os.walk(lora_dir):
-            for file_name in files:
-                if file_name not in candidate_files:
-                    continue
-                metadata_path = os.path.join(root, file_name)
+        return ""
+    for directory in directories:
+        for candidate in candidates:
+            base = _lora_basename(candidate)
+            for suffix in (".metadata.json", ".safetensors.metadata.json"):
+                path = os.path.join(directory, base + suffix)
                 try:
-                    with open(metadata_path, "r", encoding="utf-8") as file_obj:
-                        metadata = json.load(file_obj)
-                except Exception:
+                    if os.path.getsize(path) > 1024 * 1024:
+                        continue
+                    with open(path, encoding="utf-8") as file:
+                        data = json.load(file)
+                    if isinstance(data, dict) and data.get("sha256"):
+                        return str(data["sha256"])
+                except (OSError, ValueError):
                     continue
-                file_base = _lora_basename(metadata.get("file_name"))
-                path_base = _lora_basename(metadata.get("file_path"))
-                metadata_base = file_name.removesuffix(".metadata.json")
-                metadata_base = _lora_basename(metadata_base.removesuffix(".safetensors"))
-                if file_base not in candidate_bases and path_base not in candidate_bases and metadata_base not in candidate_bases:
-                    continue
-                hash_value = metadata.get("sha256")
-                if hash_value:
-                    return str(hash_value)
     return ""
 
 
@@ -889,31 +882,61 @@ def _sha256_file(path: str) -> str:
 
 
 def _scanner_hash_by_name(scanner: Any, candidates: Iterable[str]) -> str:
-    for candidate in candidates:
-        try:
-            hash_value = scanner.get_hash_by_filename(candidate)
-        except Exception:
-            hash_value = None
-        if hash_value:
-            return str(hash_value)
+    try:
+        raw = getattr(getattr(scanner, "_cache", None), "raw_data", None)
+        if not isinstance(raw, list) or len(raw) > 10000:
+            return ""
+        matches = set()
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            names = {str(item.get(key) or "").replace("\\", "/") for key in ("file_name", "name", "model_name", "file_path", "path")}
+            if any(str(candidate).replace("\\", "/") in names for candidate in candidates):
+                digest = str(item.get("sha256") or item.get("hash") or "")
+                if re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+                    matches.add(digest.lower())
+        return next(iter(matches)) if len(matches) == 1 else ""
+    except Exception:
+        return ""
 
-    cache = getattr(scanner, "_cache", None)
-    for item in getattr(cache, "raw_data", []) or []:
-        if not isinstance(item, dict):
+
+def _verified_lora_hashes(entries, tags):
+    """Only exact-path sidecars / unambiguous preloaded cache; never read weights."""
+    enabled_names = {name for name, _ in re.findall(r"<lora:([^:>]+):([^>]+)>", tags)}
+    hashes = {}
+    try:
+        roots = folder_paths.get_folder_paths("loras")
+    except Exception:
+        roots = []
+    scanner = _get_lora_scanner()
+    for row in entries:
+        if row.get("state") != "known" or row.get("target") != "model":
             continue
-        known_names = {
-            _as_text(item.get("file_name")),
-            _as_text(item.get("name")),
-            _as_text(item.get("model_name")),
-            _as_text(os.path.basename(_as_text(item.get("file_path") or item.get("path")))),
-        }
-        known_bases = {_lora_basename(name) for name in known_names if name}
-        for candidate in candidates:
-            if candidate in known_names or _lora_basename(candidate) in known_bases:
-                hash_value = item.get("sha256") or item.get("hash")
-                if hash_value:
-                    return str(hash_value)
-    return ""
+        raw = str(row["name"]).replace("\\", "/")
+        base = _lora_basename(raw)
+        if base not in enabled_names or raw.startswith("/") or ":" in raw or ".." in raw.split("/"):
+            continue
+        candidates = [raw]
+        digests = set()
+        cached = _scanner_hash_by_name(scanner, candidates) if scanner else ""
+        if cached:
+            digests.add(cached)
+        for root in roots:
+            for relative in (raw + ".metadata.json", os.path.splitext(raw)[0] + ".metadata.json"):
+                file = os.path.join(root, *relative.split("/"))
+                try:
+                    if os.path.getsize(file) > 1024 * 1024:
+                        continue
+                    with open(file, encoding="utf-8") as stream:
+                        data = json.load(stream)
+                    digest = str(data.get("sha256") or "") if isinstance(data, dict) else ""
+                    if re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+                        digests.add(digest.lower())
+                except (OSError, ValueError):
+                    continue
+        hashes.setdefault(base, set()).update(digests)
+    selected = [f"{name}: {next(iter(values))[:12]}" for name, values in hashes.items() if len(values) == 1]
+    return 'Lora hashes: "' + ", ".join(selected) + '"' if selected else ""
 
 
 def _lora_hashes_text(loras: str) -> str:
@@ -934,8 +957,6 @@ def _lora_hashes_text(loras: str) -> str:
         hash_value = _scanner_hash_by_name(scanner, candidates) if scanner is not None else ""
         if not hash_value:
             hash_value = _lora_metadata_hash_by_name(candidates)
-        if not hash_value:
-            hash_value = _lora_file_hash_by_name(candidates)
         if hash_value:
             hashes[base_name] = hash_value[:10]
     if not hashes:
@@ -1091,322 +1112,19 @@ class SaveWebPMeta:
         return filename
 
     def _metadata_from_prompt(self, prompt: Any, save_id=None) -> Dict[str, Any]:
-        info: Dict[str, Any] = {}
-        if not isinstance(prompt, dict):
-            return info
-
-        ksampler = _prompt_active_sampler(prompt, save_id)
-        if ksampler:
-            inputs = _node_inputs(ksampler)
-            for src, dst in (
-                ("seed", "seed"),
-                ("steps", "steps"),
-                ("cfg", "cfg"),
-                ("sampler_name", "sampler"),
-                ("sampler", "sampler"),
-                ("scheduler", "scheduler"),
-                ("denoise", "denoise"),
-            ):
-                if src in inputs:
-                    info[dst] = inputs[src]
-
-        latent = _prompt_path_node(
-            prompt, _node_inputs(ksampler).get("latent_image") if ksampler else None,
-            ("EmptyLatentImage", "EmptySD3LatentImage"), ("latent_image", "samples", "latent"),
-        )
-        if latent is None and _prompt_reference(_node_inputs(ksampler).get("latent_image")) is None:
-            latent = _first_node(prompt, ("EmptyLatentImage", "EmptySD3LatentImage"))
-        if latent:
-            inputs = _node_inputs(latent)
-            for key in ("width", "height"):
-                number = _prompt_number(prompt, inputs.get(key))
-                if number is not None:
-                    info[key] = number
-        if "width" not in info or "height" not in info:
-            anima = _first_node(prompt, ANIMA_REGIONAL_TYPES)
-            if anima:
-                inputs = _node_inputs(anima)
-                if "width" in inputs:
-                    info["width"] = inputs["width"]
-                if "height" in inputs:
-                    info["height"] = inputs["height"]
-
-        info.update(_prompt_model_path(prompt, ksampler))
-        ckpt = _first_node(prompt, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
-        if "model" not in info and _prompt_reference(_node_inputs(ksampler).get("model")) is None and ckpt:
-            inputs = _node_inputs(ckpt)
-            for key in ("ckpt_name", "checkpoint", "unet_name", "model_name"):
-                if key in inputs:
-                    info["model"] = inputs[key]
-                    break
-
-        positive_node = _prompt_conditioning_node(prompt, _node_inputs(ksampler).get("positive")) if ksampler else None
-        clip_loader = _prompt_path_node(
-            prompt, _node_inputs(positive_node).get("clip") if positive_node else None,
-            ("CLIPLoader",), ("clip",),
-        )
-        if clip_loader:
-            clip_inputs = _node_inputs(clip_loader)
-            encoder = clip_inputs.get("clip_name") or clip_inputs.get("text_encoder")
-            if encoder:
-                info["text_encoder"] = encoder
-        save_node = prompt.get(str(save_id)) if save_id is not None else None
-        decode = _prompt_path_node(
-            prompt, _node_inputs(save_node).get("images") if isinstance(save_node, dict) else None,
-            ("VAEDecode", "VAEDecodeTiled"), ("images", "image", "samples", "latent"),
-        )
-        if decode is None and ksampler:
-            for node in prompt.values():
-                if isinstance(node, dict) and node.get("class_type") in {"VAEDecode", "VAEDecodeTiled"}:
-                    source = _prompt_reference(_node_inputs(node).get("samples"))
-                    if source and prompt.get(source[0]) is ksampler:
-                        decode = node
-                        break
-        vae_loader = _prompt_path_node(
-            prompt, _node_inputs(decode).get("vae") if decode else None,
-            ("VAELoader",), ("vae",),
-        )
-        if vae_loader:
-            vae = _node_inputs(vae_loader).get("vae_name")
-            if vae:
-                info["vae"] = vae
-        model_name = _as_text(info.get("model")).lower()
-        clip_type = _as_text(_node_inputs(clip_loader).get("type") if clip_loader else "").lower()
-        if clip_type == "krea2" or "krea2" in model_name or "kres2" in model_name:
-            info["model_family"] = "Krea2"
-        elif (positive_node and positive_node.get("class_type") == "TextEncodeQwenImage21") or "qwen_image_2.1" in model_name or "qwen-image-2.1" in model_name:
-            info["model_family"] = "Qwen Image 2.1"
-
-        clip_skip = _first_node(prompt, ("CLIPSetLastLayer", "CLIPSkip"))
-        if clip_skip:
-            inputs = _node_inputs(clip_skip)
-            for key in ("stop_at_clip_layer", "clip_skip", "clip_layer"):
-                if key in inputs:
-                    info["clip_skip"] = _clip_skip_value(inputs[key])
-                    break
-
-        for node in prompt.values():
-            if not isinstance(node, dict):
-                continue
-            inputs = _node_inputs(node)
-            for key in ("rng_source", "random_generator_source", "random_number_generator_source", "noise_device"):
-                if key in inputs:
-                    info["rng_source"] = inputs[key]
-                    break
-            if "rng_source" in info:
-                break
-
-        if "clip_skip" not in info:
-            clip_skip = _find_named_value(prompt, ("stop_at_clip_layer", "clip_skip", "clip_layer"))
-            if clip_skip is not None:
-                info["clip_skip"] = _clip_skip_value(clip_skip)
-        if "rng_source" not in info:
-            rng_source = _find_named_value(
-                prompt,
-                ("rng_source", "random_generator_source", "random_number_generator_source", "noise_device"),
-            )
-            if rng_source is not None:
-                info["rng_source"] = rng_source
-        eta_noise_seed_delta = _find_named_value(
-            prompt,
-            ("eta_noise_seed_delta", "eta_noise_seed", "noise_seed_delta", "ensd"),
-        )
-        if eta_noise_seed_delta is not None:
-            info["eta_noise_seed_delta"] = eta_noise_seed_delta
-        emphasis_mode = _find_named_value(
-            prompt,
-            ("emphasis_mode", "emphasis", "emphasisMode", "prompt_emphasis", "prompt_parser"),
-        )
-        if emphasis_mode is not None:
-            info["emphasis_mode"] = emphasis_mode
-
-        positive, positive_resolved = _prompt_text_node(prompt, negative=False, sampler=ksampler)
-        negative, negative_resolved = _prompt_text_node(prompt, negative=True, sampler=ksampler)
-        if positive_resolved:
-            info["prompt"] = positive
-        if negative_resolved:
-            info["negative_prompt"] = negative
-
-        return info
+        return to_legacy_info(resolve_metadata(prompt=prompt, save_id=save_id))
 
     def _metadata_from_workflow(self, workflow: Any, save_id=None) -> Dict[str, Any]:
-        info: Dict[str, Any] = {}
-        nodes = _graph_nodes(workflow)
-        if not nodes:
-            return info
-
-        node_map = _graph_node_map(nodes)
-        link_sources = _graph_link_sources(workflow)
-        ksampler = _graph_active_sampler(nodes, save_id, node_map, link_sources)
-        values = _graph_values(ksampler)
-        # Common KSampler widget order: seed, control_after_generate, steps, cfg, sampler, scheduler, denoise
-        if len(values) >= 1:
-            info["seed"] = values[0]
-        if len(values) >= 3:
-            info["steps"] = values[2]
-        if len(values) >= 4:
-            info["cfg"] = values[3]
-        if len(values) >= 5:
-            info["sampler"] = values[4]
-        if len(values) >= 6:
-            info["scheduler"] = values[5]
-        if len(values) >= 7:
-            info["denoise"] = values[6]
-
-        latent_source, _ = _graph_source(ksampler, "latent_image", node_map, link_sources)
-        latent = _graph_path_node(latent_source, ("EmptyLatentImage", "EmptySD3LatentImage"), ("latent_image", "samples", "latent"), node_map, link_sources)
-        if latent is None and (ksampler is None or _graph_input_link(ksampler, "latent_image") is None):
-            latent = _graph_first(nodes, ("EmptyLatentImage", "EmptySD3LatentImage"))
-        for index, key in enumerate(("width", "height")):
-            dimension = _graph_dimension(latent, key, index, node_map, link_sources)
-            if dimension is not None:
-                info[key] = dimension
-        if "width" not in info or "height" not in info:
-            anima = _graph_first(nodes, ANIMA_REGIONAL_TYPES)
-            values = _graph_values(anima)
-            if len(values) >= 1:
-                info["width"] = values[0]
-            if len(values) >= 2:
-                info["height"] = values[1]
-
-        info.update(_graph_model_path(ksampler, node_map, link_sources))
-        ckpt = _graph_first(nodes, ("CheckpointLoaderSimple", "CheckpointLoader", "UNETLoader"))
-        values = _graph_values(ckpt)
-        if "model" not in info and (ksampler is None or _graph_input_link(ksampler, "model") is None) and values:
-            info["model"] = values[0]
-
-        positive_source, _ = _graph_source(ksampler, "positive", node_map, link_sources)
-        positive_node = _graph_conditioning_node(positive_source, node_map, link_sources)
-        clip_source, _ = _graph_source(positive_node, "clip", node_map, link_sources)
-        clip_loader = _graph_path_node(clip_source, ("CLIPLoader",), ("clip",), node_map, link_sources)
-        if clip_loader:
-            encoder = _graph_widget_value(clip_loader, ("clip_name", "text_encoder"))
-            if encoder is None:
-                clip_values = _graph_values(clip_loader)
-                encoder = clip_values[0] if clip_values else None
-            if encoder:
-                info["text_encoder"] = encoder
-        try:
-            save_node = node_map.get(int(save_id))
-        except (TypeError, ValueError):
-            save_node = None
-        image_source, _ = _graph_source(save_node, "images", node_map, link_sources)
-        decode = _graph_path_node(image_source, ("VAEDecode", "VAEDecodeTiled"), ("images", "image", "samples", "latent"), node_map, link_sources)
-        if decode is None and ksampler:
-            for node in nodes:
-                if node.get("type") in {"VAEDecode", "VAEDecodeTiled"}:
-                    source, _ = _graph_source(node, "samples", node_map, link_sources)
-                    if source is ksampler:
-                        decode = node
-                        break
-        vae_source, _ = _graph_source(decode, "vae", node_map, link_sources)
-        vae_loader = _graph_path_node(vae_source, ("VAELoader",), ("vae",), node_map, link_sources)
-        if vae_loader:
-            vae = _graph_widget_value(vae_loader, ("vae_name",))
-            if vae is None:
-                vae_values = _graph_values(vae_loader)
-                vae = vae_values[0] if vae_values else None
-            if vae:
-                info["vae"] = vae
-        model_name = _as_text(info.get("model")).lower()
-        clip_values = _graph_values(clip_loader)
-        clip_type = _graph_widget_value(clip_loader, ("type",))
-        if clip_type is None and len(clip_values) > 1:
-            clip_type = clip_values[1]
-        if _as_text(clip_type).lower() == "krea2" or "krea2" in model_name or "kres2" in model_name:
-            info["model_family"] = "Krea2"
-        elif (positive_node and positive_node.get("type") == "TextEncodeQwenImage21") or "qwen_image_2.1" in model_name or "qwen-image-2.1" in model_name:
-            info["model_family"] = "Qwen Image 2.1"
-
-        clip_skip_node = _graph_first(nodes, ("CLIPSetLastLayer", "CLIPSkip"))
-        clip_skip = _graph_widget_value(clip_skip_node, ("stop_at_clip_layer", "clip_skip", "clip_layer"))
-        if clip_skip is None:
-            values = _graph_values(clip_skip_node)
-            if values:
-                clip_skip = values[0]
-        if clip_skip is None:
-            for node in nodes:
-                node_type = _as_text(node.get("type")).lower()
-                if "clip" not in node_type or ("skip" not in node_type and "lastlayer" not in node_type and "last_layer" not in node_type):
-                    continue
-                values = _graph_values(node)
-                if values:
-                    clip_skip = values[0]
-                    break
-        if clip_skip is None:
-            clip_skip = _find_named_value(workflow, ("stop_at_clip_layer", "clip_skip", "clip_layer"))
-        if clip_skip is not None:
-            info["clip_skip"] = _clip_skip_value(clip_skip)
-
-        rng_source = _find_named_value(
-            workflow,
-            ("rng_source", "random_generator_source", "random_number_generator_source", "noise_device"),
-        )
-        if rng_source is None:
-            for node in nodes:
-                rng_source = _graph_widget_value(
-                    node,
-                    ("rng_source", "random_generator_source", "random_number_generator_source", "noise_device"),
-                )
-                if rng_source is not None:
-                    break
-        if rng_source is None:
-            for node in nodes:
-                for value in _graph_values(node):
-                    if _looks_like_rng_source(value):
-                        rng_source = value
-                        break
-                if rng_source is not None:
-                    break
-        if rng_source is not None:
-            info["rng_source"] = rng_source
-
-        eta_noise_seed_delta = _find_named_value(
-            workflow,
-            ("eta_noise_seed_delta", "eta_noise_seed", "noise_seed_delta", "ensd"),
-        )
-        if eta_noise_seed_delta is None:
-            for node in nodes:
-                eta_noise_seed_delta = _graph_widget_value(
-                    node,
-                    ("eta_noise_seed_delta", "eta_noise_seed", "noise_seed_delta", "ensd"),
-                )
-                if eta_noise_seed_delta is not None:
-                    break
-        if eta_noise_seed_delta is not None:
-            info["eta_noise_seed_delta"] = eta_noise_seed_delta
-
-        emphasis_mode = _find_named_value(
-            workflow,
-            ("emphasis_mode", "emphasis", "emphasisMode", "prompt_emphasis", "prompt_parser"),
-        )
-        if emphasis_mode is None:
-            for node in nodes:
-                emphasis_mode = _graph_widget_value(
-                    node,
-                    ("emphasis_mode", "emphasis", "emphasisMode", "prompt_emphasis", "prompt_parser"),
-                )
-                if emphasis_mode is not None:
-                    break
-        if emphasis_mode is not None:
-            info["emphasis_mode"] = emphasis_mode
-
-        positive, positive_resolved = _graph_text_node(workflow, nodes, negative=False, sampler=ksampler)
-        negative, negative_resolved = _graph_text_node(workflow, nodes, negative=True, sampler=ksampler)
-        if positive_resolved:
-            info["prompt"] = positive
-        if negative_resolved:
-            info["negative_prompt"] = negative
-        return info
+        return to_legacy_info(resolve_metadata(workflow=workflow, save_id=save_id))
 
     def _extract_metadata(self, prompt=None, extra_pnginfo=None, id=None) -> Dict[str, Any]:
-        # SaveImageLM-style: accept hidden id/prompt/extra_pnginfo, but only use structured data.
-        # Never use id as metadata text; it is only a runtime key.
-        info: Dict[str, Any] = {}
-        if isinstance(extra_pnginfo, dict):
-            info.update(self._metadata_from_workflow(extra_pnginfo.get("workflow"), save_id=id))
-        info.update(self._metadata_from_prompt(prompt, save_id=id))
-        return info
+        workflow = extra_pnginfo.get("workflow") if isinstance(extra_pnginfo, dict) else None
+        return to_legacy_info(resolve_metadata(prompt=prompt, workflow=workflow, save_id=id))
+
+    def metadata_report(self, prompt=None, extra_pnginfo=None, id=None, image=None, image_index=None):
+        """Diagnostic report. It is not embedded in the image or substituted for its workflow."""
+        workflow = extra_pnginfo.get("workflow") if isinstance(extra_pnginfo, dict) else None
+        return resolve_metadata(prompt=prompt, workflow=workflow, save_id=id, image=image, image_index=image_index)
 
     def _build_a1111_parameters(self, info: Dict[str, Any], width: int, height: int) -> str:
         prompt = _as_text(info.get("prompt", "")).strip()
@@ -1450,7 +1168,10 @@ class SaveWebPMeta:
             params.append(f"Text encoder: {info['text_encoder']}")
         if info.get("vae"):
             params.append(f"VAE: {info['vae']}")
-        lora_hashes = _lora_hashes_text(loras)
+        try:
+            lora_hashes = _verified_lora_hashes(info["_lora_entries"], loras) if "_lora_entries" in info else _lora_hashes_text(loras)
+        except Exception:
+            lora_hashes = ""  # Optional hash lookup cannot prevent saving valid pixels.
         if lora_hashes:
             params.append(lora_hashes)
         if "clip_skip" in info:
@@ -1470,102 +1191,99 @@ class SaveWebPMeta:
 
     def _build_exif(self, parameters: str, prompt=None, extra_pnginfo=None) -> bytes:
         if piexif is None:
-            raise RuntimeError(
-                "piexif is required to write WebP EXIF metadata. "
-                "Install it in the active ComfyUI Python environment with: python -m pip install piexif"
-            )
+            raise RuntimeError("piexif is required to write EXIF metadata. Install piexif in the active ComfyUI Python environment.")
         exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}}
-        metadata_items = []
-        if prompt is not None:
-            metadata_items.append(("prompt", prompt))
-        if isinstance(extra_pnginfo, dict):
-            metadata_items.extend(extra_pnginfo.items())
-        for exif_tag, (key, value) in zip(EXIF_TEXT_TAGS, metadata_items):
-            exif_dict["0th"][exif_tag] = _exif_text_bytes(f"{key}:{json.dumps(value)}")
+        items = self._raw_metadata_items(prompt, extra_pnginfo)
+        if len(items) > len(EXIF_TEXT_TAGS):
+            raise ValueError("EXIF metadata exceeds the 7 text-tag slots. Use PNG; no workflow data was discarded.")
+        for exif_tag, (key, value) in zip(EXIF_TEXT_TAGS, items):
+            exif_dict["0th"][exif_tag] = _exif_text_bytes(f"{key}:{value}")
         exif_dict["Exif"][EXIF_USER_COMMENT] = piexif.helper.UserComment.dump(parameters, encoding="unicode")
         exif_dict["0th"][EXIF_IMAGE_DESCRIPTION] = _exif_text_bytes(parameters)
         return piexif.dump(exif_dict)
+
+    @staticmethod
+    def _raw_metadata_items(prompt, extra_pnginfo):
+        items = []
+        if prompt is not None:
+            items.append(("prompt", json.dumps(prompt, allow_nan=False)))
+        if isinstance(extra_pnginfo, dict):
+            for key, value in extra_pnginfo.items():
+                if key == "parameters" or (key == "prompt" and prompt is not None):
+                    raise ValueError("Reserved metadata key collision: " + key)
+                if not isinstance(key, str):
+                    raise ValueError("Metadata keys must be strings")
+                items.append((key, json.dumps(value, allow_nan=False)))
+        return items
 
     def _build_pnginfo(self, parameters: str, prompt=None, extra_pnginfo=None) -> PngInfo:
         metadata = PngInfo()
         if parameters:
             metadata.add_text("parameters", parameters)
-        if prompt is not None:
-            metadata.add_text("prompt", json.dumps(prompt))
-        if isinstance(extra_pnginfo, dict):
-            for key, value in extra_pnginfo.items():
-                metadata.add_text(key, json.dumps(value))
+        for key, text in self._raw_metadata_items(prompt, extra_pnginfo):
+            metadata.add_text(key, text)
         return metadata
 
     def save_webp(self, images, filename_prefix="ComfyUI", file_format="webp", quality=70, id=None, prompt=None, extra_pnginfo=None, **kwargs):
-        info = self._extract_metadata(prompt=prompt, extra_pnginfo=extra_pnginfo, id=id)
-        info.setdefault("width", images[0].shape[1])
-        info.setdefault("height", images[0].shape[0])
-        filename_prefix = self._format_filename(filename_prefix or "ComfyUI", info, prompt=prompt, extra_pnginfo=extra_pnginfo)
+        if len(images) == 0:
+            raise ValueError("Save WEBP Meta requires at least one IMAGE")
         file_format = _as_text(file_format).strip().lower()
         if file_format == "jpeg":
             file_format = "jpg"
         if file_format not in {"webp", "webp_lossless", "png", "jpg", "avif"}:
             file_format = "webp"
-
-        out_dir = folder_paths.get_output_directory()
-        full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(
-            filename_prefix,
-            out_dir,
-            images[0].shape[1],
-            images[0].shape[0],
-        )
-        os.makedirs(full_output_folder, exist_ok=True)
-
-        width = _as_int(info.get("width", images[0].shape[1]), images[0].shape[1])
-        height = _as_int(info.get("height", images[0].shape[0]), images[0].shape[0])
-        parameters = self._build_a1111_parameters(info, width, height)
         webp_quality = max(1, min(100, _as_int(quality, 70)))
-
-        saved = []
+        plans = []
+        metadata_cache, prefix_cache, diagnostics = {}, {}, set()
+        workflow = extra_pnginfo.get("workflow") if isinstance(extra_pnginfo, dict) else None
+        session = MetadataSession(prompt, workflow)
+        # Preflight every metadata payload before writing any file in this batch.
         for i, image_tensor in enumerate(images):
+            if len(image_tensor.shape) != 3 or image_tensor.shape[-1] not in (1, 3, 4):
+                raise ValueError(f"Unsupported image tensor shape: {image_tensor.shape}")
+            height, width, channels = map(int, image_tensor.shape)
+            if width <= 0 or height <= 0:
+                raise ValueError("IMAGE dimensions must be positive")
+            report = session.report(id,
+                image={"width": width, "height": height, "channels": channels, "batch_index": i}, image_index=i)
+            info = to_legacy_info(report)
+            # External/unknown producers still have authoritative pixel dimensions.
+            info.update(width=width, height=height)
+            diagnostics.update(w["code"] for w in report.warnings)
+            signature = json.dumps(info, sort_keys=True, allow_nan=False)
+            if signature not in prefix_cache:
+                prefix_cache[signature] = self._format_filename(filename_prefix or "ComfyUI", info, prompt=prompt, extra_pnginfo=extra_pnginfo)
+            prefix = prefix_cache[signature]
+            parameters = self._build_a1111_parameters(info, width, height)
+            if parameters not in metadata_cache:
+                metadata_cache[parameters] = self._build_pnginfo(parameters, prompt, extra_pnginfo) if file_format == "png" else self._build_exif(parameters, prompt, extra_pnginfo)
+            metadata = metadata_cache[parameters]
+            if file_format == "jpg" and len(metadata) > 65533:
+                raise ValueError("JPEG EXIF exceeds the APP1 limit; use PNG or WebP. No metadata was truncated.")
+            plans.append((prefix, metadata, width, height))
+        if diagnostics:
+            logging.warning("[Save WEBP Meta] Partial metadata (pixels and raw graph retained): %s", ", ".join(sorted(diagnostics)[:8]))
+        saved, reserved = [], {}
+        for image_tensor, (prefix, metadata, width, height) in zip(images, plans):
             img = _tensor_to_pil(image_tensor)
+            out_dir = folder_paths.get_output_directory()
+            full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(prefix, out_dir, width, height)
+            key = (full_output_folder, filename)
+            counter = max(counter, reserved.get(key, counter))
+            reserved[key] = counter + 1
+            os.makedirs(full_output_folder, exist_ok=True)
             extension = "webp" if file_format == "webp_lossless" else file_format
-            file = f"{filename}_{counter + i:05}_.{extension}"
+            file = f"{filename}_{counter:05}_.{extension}"
+            path = os.path.join(full_output_folder, file)
             if file_format == "png":
-                img.save(
-                    os.path.join(full_output_folder, file),
-                    format="PNG",
-                    pnginfo=self._build_pnginfo(parameters, prompt=prompt, extra_pnginfo=extra_pnginfo),
-                    compress_level=_png_compress_level_from_quality(quality),
-                )
+                img.save(path, format="PNG", pnginfo=metadata, compress_level=_png_compress_level_from_quality(quality))
             elif file_format == "jpg":
-                img.convert("RGB").save(
-                    os.path.join(full_output_folder, file),
-                    format="JPEG",
-                    quality=webp_quality,
-                    exif=self._build_exif(parameters, prompt=prompt, extra_pnginfo=extra_pnginfo),
-                )
+                img.convert("RGB").save(path, format="JPEG", quality=webp_quality, exif=metadata)
             elif file_format == "avif":
-                img.save(
-                    os.path.join(full_output_folder, file),
-                    format="AVIF",
-                    quality=webp_quality,
-                    exif=self._build_exif(parameters, prompt=prompt, extra_pnginfo=extra_pnginfo),
-                )
+                img.save(path, format="AVIF", quality=webp_quality, exif=metadata)
             elif file_format == "webp_lossless":
-                img.save(
-                    os.path.join(full_output_folder, file),
-                    format="WEBP",
-                    lossless=True,
-                    quality=webp_quality,
-                    method=6,
-                    exif=self._build_exif(parameters, prompt=prompt, extra_pnginfo=extra_pnginfo),
-                )
+                img.save(path, format="WEBP", lossless=True, exact=True, quality=webp_quality, method=6, exif=metadata)
             else:
-                img.save(
-                    os.path.join(full_output_folder, file),
-                    format="WEBP",
-                    quality=webp_quality,
-                    lossless=False,
-                    method=0,
-                    exif=self._build_exif(parameters, prompt=prompt, extra_pnginfo=extra_pnginfo),
-                )
+                img.save(path, format="WEBP", quality=webp_quality, lossless=False, method=0, exif=metadata)
             saved.append({"filename": file, "subfolder": subfolder, "type": "output"})
-
         return {"ui": {"images": saved}}
