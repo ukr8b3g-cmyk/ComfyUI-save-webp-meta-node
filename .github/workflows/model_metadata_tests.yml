@@ -1,0 +1,76 @@
+name: Model metadata regression
+on:
+  push:
+    branches: [main, work/model-metadata-v1.2.0]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ukr8b3g-cmyk/Krea2-BBOX-Prompter
+          ref: fd6d5edb8297d8c50ad45a8199ca523282f53832
+          path: references/krea2
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ukr8b3g-cmyk/H3-Character-Sheet-Designer
+          ref: bf792c652a9f50e895409e49fce667fef0f73c25
+          path: references/h3
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ukr8b3g-cmyk/custom_nodes-krea2_bbox_pose_gesture_v1
+          ref: 62f0197195e5a2a12002e5d5b0eaaf6e441cd1bb
+          path: references/pose
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Comfy-Org/ComfyUI
+          ref: 3541246a9c997f4b8c32f9f88f3c985d02021c79
+          path: references/core
+          persist-credentials: false
+          sparse-checkout: |
+            nodes.py
+            comfy_extras
+            comfy_api_nodes
+            comfy/supported_models.py
+            LICENSE
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install existing test requirements
+        run: python -m pip install numpy Pillow piexif
+      - name: Run metadata and codec regressions
+        working-directory: source
+        env:
+          METADATA_REFERENCE_ROOT: ${{ github.workspace }}/references
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -B -m unittest discover -s tests -v
+      - name: Archive inspected source and text fixtures
+        if: always()
+        run: |
+          mkdir -p evidence
+          git -C source archive --format=zip HEAD -o "$GITHUB_WORKSPACE/evidence/source.zip"
+          python - <<'PY'
+          import pathlib, zipfile
+          with zipfile.ZipFile('evidence/reference_sources.zip','w',zipfile.ZIP_DEFLATED) as archive:
+              for path in pathlib.Path('references').rglob('*'):
+                  if path.is_file() and '.git' not in path.parts and (path.suffix in {'.py','.json','.toml'} or path.name in {'LICENSE','AGENTS.md'}):
+                      archive.write(path, str(path))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metadata-test-evidence
+          path: evidence/
+          retention-days: 7
