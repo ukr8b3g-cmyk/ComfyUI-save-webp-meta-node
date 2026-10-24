@@ -21,6 +21,12 @@ Because ComfyUI and A1111-based tools use different samplers, schedulers, and gr
 
 [Japanese / 日本語](#japanese)
 
+## v1.2.1 fixes
+
+Zero-strength CLIP LoRAs no longer produce misleading single-strength tags. Filename node references prefer runtime values; unknown or duplicate references remain unresolved. Image-less diagnostics now match the bundled schema. Existing image files and raw workflow metadata are unchanged.
+
+CLIP強度0のLoRA誤タグ、ファイル名の古い画面値優先、画像なし診断Schemaの3件を修正しました。既存画像とraw workflowの保存形式は変更していません。
+
 ## v1.2.0: model and prompt-path metadata
 
 Save WEBP Meta now supports H3 static-frame/custom-sampler paths, paired image-edit encoders, multiple text encoders, native LoRA stacks, and source-verified H3 Designer / Krea2 BBOX pure prompt compilers. It uses only the saving image's upstream execution path and preserves unknown values rather than borrowing another sampler's settings. Actual output dimensions are used after resizing.

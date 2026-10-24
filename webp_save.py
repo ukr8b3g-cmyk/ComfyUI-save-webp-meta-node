@@ -496,7 +496,12 @@ def _graph_cross_node_value(workflow: Any, node_name: str, widget_name: str) -> 
     nodes = _graph_nodes(workflow)
     # Match by Node name for S&R/title/type. Prefer exact, then case-insensitive.
     for case_sensitive in (True, False):
-        for node in nodes:
+        matches = [node for node in nodes if any(
+            name == node_name if case_sensitive else name.lower() == node_name.lower()
+            for name in _graph_node_names(node))]
+        if len(matches) > 1:
+            return None
+        for node in matches:
             names = _graph_node_names(node)
             if not case_sensitive:
                 names = {name.lower() for name in names}
@@ -528,22 +533,32 @@ def _graph_cross_node_value(workflow: Any, node_name: str, widget_name: str) -> 
     return None
 
 
-def _prompt_cross_node_value(prompt: Any, node_name: str, widget_name: str) -> Any:
+def _prompt_cross_node_value(prompt: Any, node_name: str, widget_name: str, workflow=None) -> Any:
     if not isinstance(prompt, dict):
         return None
-    for node in prompt.values():
+    workflow_nodes = {str(n.get("id")): n for n in _graph_nodes(workflow)}
+    candidates = []
+    for node_id, node in prompt.items():
         if not isinstance(node, dict):
             continue
         names = {
             _as_text(node.get("class_type")),
             _as_text(node.get("_meta", {}).get("title")) if isinstance(node.get("_meta"), dict) else "",
         }
-        if node_name not in names and node_name.lower() not in {name.lower() for name in names if name}:
-            continue
-        inputs = _node_inputs(node)
-        if widget_name in inputs:
-            return inputs[widget_name]
-    return None
+        names.update(_graph_node_names(workflow_nodes.get(str(node_id), {})))
+        candidates.append((node, names))
+    matches = [node for node, names in candidates if node_name in names]
+    if not matches:
+        matches = [node for node, names in candidates if node_name.lower() in {name.lower() for name in names if name}]
+    if len(matches) != 1:
+        return None
+    # Use the same bounded resolver as metadata. Never stringify links or
+    # substitute stale UI values for missing/unsupported runtime inputs.
+    session = MetadataSession(prompt=prompt)
+    if session.resolver is None:
+        return None
+    result = session.resolver.resolve(_node_inputs(matches[0]).get(widget_name), "scalar")
+    return result.value if result.known else None
 
 
 def _clip_skip_value(value: Any) -> Any:
@@ -1086,9 +1101,10 @@ class SaveWebPMeta:
 
             if "." in key:
                 node_name, widget_name = key.rsplit(".", 1)
-                replacement = _graph_cross_node_value(workflow, node_name, widget_name)
-                if replacement is None:
-                    replacement = _prompt_cross_node_value(prompt, node_name, widget_name)
+                if isinstance(prompt, dict):
+                    replacement = _prompt_cross_node_value(prompt, node_name, widget_name, workflow)
+                else:
+                    replacement = _graph_cross_node_value(workflow, node_name, widget_name)
             elif key == "seed" and "seed" in info:
                 replacement = info.get("seed")
             elif key == "width":

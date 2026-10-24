@@ -24,7 +24,7 @@
       ]
     },
     "image": {
-      "type": "object",
+      "type": ["object", "null"],
       "additionalProperties": false,
       "required": [
         "width",

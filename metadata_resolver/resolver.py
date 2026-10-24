@@ -258,14 +258,12 @@ class Resolver:
             if enabled.known and enabled.value is False:
                 continue
             strength = self.resolve(row.get("strength", MISSING), "scalar")
-            if strength.known and type(strength.value) in (int, float) and strength.value == 0:
-                continue
             name = self.resolve(row.get("lora_name", MISSING), "string")
             if name.known and not name.value:
                 continue
             if not (enabled.known and enabled.value is True and strength.known
                     and type(strength.value) in (int, float) and name.known):
-                rows.append({"state": "unresolved", "reason": "unresolved_lora_row", "node_id": ref.node_id, "row": i}); continue
+                rows.append({"state": "unresolved", "reason": "unresolved_lora_row", "node_id": ref.node_id, "row": i, "target": role}); continue
             rows.append({"state": "known", "name": name.value, "strength": strength.value, "target": role,
                          "node_id": ref.node_id, "row": i})
         return rows
@@ -448,7 +446,12 @@ class Resolver:
                 if marker not in seen_clip:
                     seen_clip.add(marker); loras.append(row)
         if loras:
-            fields["lora_entries"] = known(loras)
+            # Keep explicit zero targets for compatibility decisions, while the
+            # applied list (and hashes) still excludes disabled-strength rows.
+            fields["lora_targets"] = known(loras)
+            active = [r for r in loras if r.get("state") != "known" or r.get("strength") != 0]
+            if active:
+                fields["lora_entries"] = known(active)
         if model.known and model.value.get("modifiers"):
             fields["model_modifiers"] = known(model.value["modifiers"])
         # Only the producing sampler may supply these optional explicit values.

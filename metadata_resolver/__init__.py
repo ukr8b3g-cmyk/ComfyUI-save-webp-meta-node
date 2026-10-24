@@ -42,13 +42,14 @@ def to_legacy_info(report):
     entries = report.fields.get("lora_entries")
     if entries and entries.known:
         rows = entries.value
+        targets = report.fields.get("lora_targets", entries).value
         info["_lora_entries"] = rows
         # Preserve each model row. A different CLIP strength cannot be represented as one tag.
         tags = []
         for row in rows:
             if row.get("state") != "known" or row.get("target") != "model":
                 continue
-            partner = [r for r in rows if r.get("target") == "clip" and r.get("node_id") == row.get("node_id") and r.get("row") == row.get("row")]
+            partner = [r for r in targets if r.get("target") == "clip" and r.get("node_id") == row.get("node_id") and r.get("row") == row.get("row")]
             if any(r.get("state") != "known" or r.get("strength") != row["strength"] for r in partner):
                 continue
             name = os.path.splitext(row["name"].replace("\\", "/").rsplit("/", 1)[-1])[0]

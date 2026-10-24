@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 — 2026-10-25 (JST)
+
+- Preserve connected zero-strength LoRA targets when deciding whether an A1111 tag accurately represents MODEL and CLIP strengths.
+- Prefer runtime inputs for filename node references, resolve supported links, and leave unknown or ambiguous references unresolved.
+- Accept image-less diagnostic reports in the JSON Schema while retaining image object constraints.
+- Add 11 regression tests; retain existing image formats, raw graphs and public node inputs.
+
 ## 1.2.0 — 2026-10-17 (JST)
 
 - Follow only the image connected to the saving node; never fall back to an unrelated first sampler or stale workflow value.
