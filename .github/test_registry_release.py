@@ -57,6 +57,41 @@ class APIAndReleaseTests(unittest.TestCase):
                 with self.assertRaises((ValueError, json.JSONDecodeError)):
                     release.get_json("https://api.comfy.org/test", absent=True)
 
+    def test_exact_registry_node_not_found_response_is_absent(self):
+        url = "https://api.comfy.org/nodes/example-node"
+        error = urllib.error.HTTPError(url, 404, "missing", {}, io.BytesIO(b'{"error":"","message":"Node not found"}'))
+        with patch.object(release.urllib.request, "urlopen", side_effect=error):
+            self.assertIsNone(release.get_json(url, absent=True))
+
+    def test_node_not_found_is_rejected_outside_exact_node_endpoint(self):
+        urls = ["https://api.comfy.org/nodes/example-node/versions/1.2.3", "https://api.comfy.org/test",
+                "https://api.github.com/nodes/example-node", "https://other.example/nodes/example-node",
+                "https://api.comfy.org/nodes/example-node?other=1", "https://api.comfy.org/nodes/example-node/"]
+        for url in urls:
+            error = urllib.error.HTTPError(url, 404, "missing", {}, io.BytesIO(b'{"error":"","message":"Node not found"}'))
+            with self.subTest(url=url), patch.object(release.urllib.request, "urlopen", side_effect=error):
+                with self.assertRaises(ValueError):
+                    release.get_json(url, absent=True)
+
+    def test_node_absence_rejects_other_payloads_and_statuses(self):
+        url = "https://api.comfy.org/nodes/example-node"
+        bodies = [b'{"error":"denied","message":"Node not found"}', b'{"message":"Node not found"}',
+                  b'{"error":"","message":"Node not found","extra":1}', b'{"error":"","message":"Unauthorized"}', b'null', b'[]']
+        for body in bodies:
+            error = urllib.error.HTTPError(url, 404, "missing", {}, io.BytesIO(body))
+            with self.subTest(body=body), patch.object(release.urllib.request, "urlopen", side_effect=error):
+                with self.assertRaises(ValueError): release.get_json(url, absent=True)
+        for status in [401, 403, 429, 500]:
+            error = urllib.error.HTTPError(url, status, "failed", {}, io.BytesIO(b'{"error":"","message":"Node not found"}'))
+            with self.subTest(status=status), patch.object(release.urllib.request, "urlopen", side_effect=error):
+                with self.assertRaises(ValueError): release.get_json(url, absent=True)
+
+    def test_observed_new_node_and_version_responses_pass_preflight(self):
+        errors = [urllib.error.HTTPError("url", 404, "missing", {}, io.BytesIO(b'{"error":"","message":"Node not found"}')),
+                  urllib.error.HTTPError("url", 404, "missing", {}, io.BytesIO(b'{}'))]
+        with patch.object(release.urllib.request, "urlopen", side_effect=errors):
+            self.assertTrue(release.registry_preflight(POLICY, "1.2.3"))
+
     def test_network_failure_propagates(self):
         with patch.object(release.urllib.request, "urlopen", side_effect=urllib.error.URLError("offline")):
             with self.assertRaises(urllib.error.URLError):

@@ -20,3 +20,36 @@ jobs:
           python-version: '3.12'
       - name: Run offline publication mock tests
         run: python -B -m unittest discover -s .github -p test_registry_release.py -v
+  resume-v1-2-1:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'ukr8b3g-cmyk/ComfyUI-save-webp-meta-node' && github.event.head_commit.message == 'Fix Registry node-not-found handling and resume v1.2.1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Resume only the existing v1.2.1 release through the guarded publisher
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json, os, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('.github').resolve()))
+          import registry_release as release
+          policy = json.loads(Path('.github/registry-policy.json').read_text())
+          source = release.resolve_release(policy, 'v1.2.1')
+          release.require(source['sha'] == '498e9e7d9db46626d9f5c28c62f8ebf315330045', 'Release tag changed; stop')
+          repo = os.environ['GITHUB_REPOSITORY']
+          current = release.get_json('https://api.github.com/repos/' + repo + '/git/ref/heads/main', os.environ['GITHUB_TOKEN'])
+          release.require(current['object']['sha'] == os.environ['GITHUB_SHA'], 'Main advanced; stop')
+          release.registry_preflight(policy, source['version'])
+          subprocess.run(['gh', 'workflow', 'run', 'publish_registry.yml', '--repo', repo, '--ref', 'main', '-f', 'release_tag=v1.2.1'], check=True)

@@ -38,7 +38,12 @@ def get_json(url, token=None, absent=False):
             return json.load(response)
     except urllib.error.HTTPError as error:
         if absent and error.code == 404:
-            require(json.load(error) == {}, "Unexpected Registry absence response")
+            payload = json.load(error)
+            # The Registry uses a distinct response for an absent node, while
+            # an absent version returns {}. Do not generalize other errors.
+            missing_node = (re.fullmatch(r"https://api\.comfy\.org/nodes/[a-z0-9][a-z0-9_-]*", url)
+                            and payload == {"error": "", "message": "Node not found"})
+            require(payload == {} or missing_node, "Unexpected Registry absence response")
             return None
         raise ValueError("API request failed with HTTP " + str(error.code)) from None
 
