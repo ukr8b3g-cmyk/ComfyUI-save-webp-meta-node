@@ -4,7 +4,9 @@ import logging
 import math
 import os
 import re
+import shutil
 import sys
+import tempfile
 from typing import Any, Dict, Iterable, Optional
 
 import folder_paths
@@ -1078,6 +1080,12 @@ class SaveWebPMeta:
                 "file_format": (["webp", "webp_lossless", "png", "jpg", "avif"], {"default": "webp"}),
                 "quality": ("INT", {"default": 70, "min": 1, "max": 100}),
             },
+            "optional": {
+                "output_directory": ("STRING", {
+                    "default": "",
+                    "tooltip": "Absolute folder path for this node. Leave blank to use ComfyUI's output folder.",
+                }),
+            },
             "hidden": {
                 "id": "UNIQUE_ID",
                 "prompt": "PROMPT",
@@ -1240,9 +1248,16 @@ class SaveWebPMeta:
             metadata.add_text(key, text)
         return metadata
 
-    def save_webp(self, images, filename_prefix="ComfyUI", file_format="webp", quality=70, id=None, prompt=None, extra_pnginfo=None, **kwargs):
+    def save_webp(self, images, filename_prefix="ComfyUI", file_format="webp", quality=70, id=None, prompt=None,
+                  extra_pnginfo=None, output_directory="", **kwargs):
         if len(images) == 0:
             raise ValueError("Save WEBP Meta requires at least one IMAGE")
+        output_directory = output_directory.strip()
+        if output_directory and (
+            not os.path.isabs(output_directory) or (os.name == "nt" and not os.path.splitdrive(output_directory)[0])
+        ):
+            raise ValueError("Save WEBP Meta: output_directory must be an absolute folder path")
+        out_dir = output_directory or folder_paths.get_output_directory()
         file_format = _as_text(file_format).strip().lower()
         if file_format == "jpeg":
             file_format = "jpg"
@@ -1280,26 +1295,50 @@ class SaveWebPMeta:
         if diagnostics:
             logging.warning("[Save WEBP Meta] Partial metadata (pixels and raw graph retained): %s", ", ".join(sorted(diagnostics)[:8]))
         saved, reserved = [], {}
+        output_paths = []
+        extension = "webp" if file_format == "webp_lossless" else file_format
         for image_tensor, (prefix, metadata, width, height) in zip(images, plans):
             img = _tensor_to_pil(image_tensor)
-            out_dir = folder_paths.get_output_directory()
             full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(prefix, out_dir, width, height)
-            key = (full_output_folder, filename)
+            key = (os.path.normcase(full_output_folder), os.path.normcase(filename))
             counter = max(counter, reserved.get(key, counter))
-            reserved[key] = counter + 1
             os.makedirs(full_output_folder, exist_ok=True)
-            extension = "webp" if file_format == "webp_lossless" else file_format
-            file = f"{filename}_{counter:05}_.{extension}"
-            path = os.path.join(full_output_folder, file)
-            if file_format == "png":
-                img.save(path, format="PNG", pnginfo=metadata, compress_level=_png_compress_level_from_quality(quality))
-            elif file_format == "jpg":
-                img.convert("RGB").save(path, format="JPEG", quality=webp_quality, exif=metadata)
-            elif file_format == "avif":
-                img.save(path, format="AVIF", quality=webp_quality, exif=metadata)
-            elif file_format == "webp_lossless":
-                img.save(path, format="WEBP", lossless=True, exact=True, quality=webp_quality, method=6, exif=metadata)
-            else:
-                img.save(path, format="WEBP", quality=webp_quality, lossless=False, method=0, exif=metadata)
+            while True:
+                file = f"{filename}_{counter:05}_.{extension}"
+                path = os.path.join(full_output_folder, file)
+                try:
+                    stream = open(path, "xb")
+                    break
+                except FileExistsError:
+                    counter += 1
+            reserved[key] = counter + 1
+            try:
+                with stream:
+                    if file_format == "png":
+                        img.save(stream, format="PNG", pnginfo=metadata, compress_level=_png_compress_level_from_quality(quality))
+                    elif file_format == "jpg":
+                        img.convert("RGB").save(stream, format="JPEG", quality=webp_quality, exif=metadata)
+                    elif file_format == "avif":
+                        img.save(stream, format="AVIF", quality=webp_quality, exif=metadata)
+                    elif file_format == "webp_lossless":
+                        img.save(stream, format="WEBP", lossless=True, exact=True, quality=webp_quality, method=6, exif=metadata)
+                    else:
+                        img.save(stream, format="WEBP", quality=webp_quality, lossless=False, method=0, exif=metadata)
+            except BaseException:
+                os.remove(path)
+                raise
             saved.append({"filename": file, "subfolder": subfolder, "type": "output"})
+            output_paths.append(path)
+        if output_directory:
+            # ComfyUI can only display previews served from its managed directories.
+            saved = []
+            try:
+                preview_folder = tempfile.mkdtemp(prefix="save-webp-meta-", dir=folder_paths.get_temp_directory())
+                for index, path in enumerate(output_paths):
+                    # Distinct source subfolders can contain files with the same name.
+                    file = f"{index}_{os.path.basename(path)}"
+                    shutil.copyfile(path, os.path.join(preview_folder, file))
+                    saved.append({"filename": file, "subfolder": os.path.basename(preview_folder), "type": "temp"})
+            except OSError as exc:
+                logging.warning("[Save WEBP Meta] Saved to %s, but could not create a preview: %s", out_dir, exc)
         return {"ui": {"images": saved}}

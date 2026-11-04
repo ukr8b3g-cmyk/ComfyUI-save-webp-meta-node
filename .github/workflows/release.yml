@@ -8,6 +8,10 @@ on:
         description: 'Existing stable Git tag to release, e.g. v1.2.3'
         required: true
         type: string
+      changelog_notes:
+        description: 'Use the tagged version section of CHANGELOG.md'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,7 +58,20 @@ jobs:
       - name: Create the stable Release for the existing validated tag
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" --generate-notes --latest
+          CHANGELOG_NOTES: ${{ inputs.changelog_notes }}
+        shell: bash
+        run: |
+          notes=(--generate-notes)
+          if [[ "$CHANGELOG_NOTES" == "true" ]]; then
+            notes_file="$RUNNER_TEMP/save-webp-release-notes.md"
+            awk -v version="${RELEASE_TAG#v}" '
+              $1 == "##" { if (found) exit; found = ($2 == version); next }
+              found { print }
+            ' source/CHANGELOG.md > "$notes_file"
+            test -s "$notes_file"
+            notes=(--notes-file "$notes_file")
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$RELEASE_TAG" "${notes[@]}" --latest
 
   registry:
     needs: release

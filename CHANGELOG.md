@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.2 — 2026-11-05 (JST)
+
+Save WEBP Meta now has an optional `output_directory` field. Enter an absolute folder path to save images from that node there. Leave it blank to use the standard ComfyUI output directory. The node uses a temporary copy for previews and retains the embedded prompt and workflow metadata.
+
+Save WEBP Meta に任意の `output_directory` 欄を追加しました。絶対パスを指定すると、そのノードの画像を指定フォルダに保存できます。空欄の場合は ComfyUI の標準出力先を使います。プレビューは一時コピーから表示し、プロンプトとワークフローのメタデータは画像に保持します。
+
+| Field / 項目 | Example / 設定例 |
+| --- | --- |
+| `output_directory` | `D:\SD_PIC\Comfyui_w` |
+| `filename_prefix` | `P3_image_MultiangleCamera` |
+| `file_format` | `webp` |
+| `quality` | `70` |
+
+After updating, restart ComfyUI and refresh the browser. The existing Save WEBP Meta node can be used in saved workflows.
+
+更新後は ComfyUI を再起動し、ブラウザーを更新してください。保存済みワークフローでは既存の Save WEBP Meta ノードをそのまま使えます。
+
 ## 1.2.1 — 2026-10-25 (JST)
 
 - Preserve connected zero-strength LoRA targets when deciding whether an A1111 tag accurately represents MODEL and CLIP strengths.

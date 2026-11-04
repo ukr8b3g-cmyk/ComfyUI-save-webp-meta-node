@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-save-webp-meta-node"
 description = "ComfyUI node for saving WebP, PNG, JPEG, and AVIF images with embedded prompt metadata."
-version = "1.2.1"
+version = "1.2.2"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [

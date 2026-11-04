@@ -21,6 +21,19 @@ Because ComfyUI and A1111-based tools use different samplers, schedulers, and gr
 
 [Japanese / 日本語](#japanese)
 
+## v1.2.2: Choose a save folder per node
+
+Enter an absolute folder path in `output_directory`. Leave it blank to use ComfyUI's standard output folder. Put the file name prefix in `filename_prefix`, which also accepts a relative subfolder.
+
+| Field | Example |
+| --- | --- |
+| `output_directory` | `D:\SD_PIC\Comfyui_w` |
+| `filename_prefix` | `P3_image_MultiangleCamera` |
+| `file_format` | `webp` |
+| `quality` | `70` |
+
+This saves files such as `D:\SD_PIC\Comfyui_w\P3_image_MultiangleCamera_00001_.webp`. The node shows a preview from ComfyUI's temporary folder. The chosen path is saved in the workflow and may be embedded in exported images. Restart ComfyUI and refresh the browser after updating. Existing workflows can use the same node.
+
 ## v1.2.1 fixes
 
 Zero-strength CLIP LoRAs no longer produce misleading single-strength tags. Filename node references prefer runtime values; unknown or duplicate references remain unresolved. Image-less diagnostics now match the bundled schema. Existing image files and raw workflow metadata are unchanged.
@@ -233,6 +246,7 @@ Even when metadata is written correctly, some external apps may not display AVIF
 - `filename_prefix`: `comfy_%model%_%date%`
 - `file_format`: `webp`
 - `quality`: `70`
+- `output_directory`: blank (ComfyUI's output directory)
 
 These defaults favor ComfyUI metadata viewers and keep the saved file name compact by default.
 You can still change `quality` manually in the node for each workflow or run.
@@ -269,6 +283,19 @@ SD Prompt Reader、Tiefsee、Infinite Image Browsing などのプロンプトビ
 
 A1111 系の Stable Diffusion WebUI、Forge、NEO などでは、保存画像から一部の生成パラメータを読み取れる場合があります。
 ComfyUI と A1111 系ではサンプラー、スケジューラー、ノード構造が異なるため、完全に同じ結果を再現できるとは限りません。
+
+## v1.2.2：ノードごとに保存先を指定
+
+`output_directory` に保存先フォルダの絶対パスを入力します。空欄の場合は ComfyUI の標準出力フォルダを使います。`filename_prefix` にはファイル名の先頭部分を指定します。相対サブフォルダも指定できます。
+
+| 項目 | 設定例 |
+| --- | --- |
+| `output_directory` | `D:\SD_PIC\Comfyui_w` |
+| `filename_prefix` | `P3_image_MultiangleCamera` |
+| `file_format` | `webp` |
+| `quality` | `70` |
+
+この例では `D:\SD_PIC\Comfyui_w\P3_image_MultiangleCamera_00001_.webp` のように保存されます。プレビューは ComfyUI の一時フォルダから表示します。指定パスはワークフローに保存され、出力画像に埋め込まれる場合があります。更新後は ComfyUI を再起動し、ブラウザーを更新してください。保存済みワークフローでは既存ノードをそのまま使えます。
 
 ## v1.2.0：画像モデルとプロンプト経路の対応拡張
 
@@ -424,6 +451,7 @@ python -m pip install -U Pillow
 - `filename_prefix`: `comfy_%model%_%date%`
 - `file_format`: `webp`
 - `quality`: `70`
+- `output_directory`: 空欄（ComfyUI の標準出力フォルダ）
 
 これらの初期値は、ComfyUI 側のメタデータ閲覧を想定しつつ、ファイル名が長くなりすぎないようにしています。
 `quality` は各ワークフローや実行時にノード上で手動変更できます。

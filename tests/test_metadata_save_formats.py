@@ -57,6 +57,44 @@ class SaveFormatTests(unittest.TestCase):
     def test_jpg(self):self.check_format('jpg')
     def test_avif(self):self.check_format('avif')
 
+    def test_absolute_output_directory_preserves_webp_metadata_and_preview(self):
+        prompt = base()
+        workflow = {'nodes': [], 'links': []}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / 'external images'
+            preview = root / 'temp'
+            default_output = root / 'output'
+            for folder in (destination, preview, default_output):
+                folder.mkdir()
+            existing = destination / 'camera_00000_.webp'
+            existing.write_bytes(b'existing file')
+
+            with patch.object(folder_paths, 'get_output_directory', return_value=str(default_output)), \
+                 patch.object(folder_paths, 'get_temp_directory', return_value=str(preview), create=True):
+                result = self.saver.save_webp(
+                    [Tensor(), Tensor()], filename_prefix='camera', output_directory=str(destination),
+                    id='save', prompt=prompt, extra_pnginfo={'workflow': workflow},
+                )
+                fallback = self.saver.save_webp([Tensor()], filename_prefix='camera', output_directory=' ')
+
+            self.assertEqual(existing.read_bytes(), b'existing file')
+            images = result['ui']['images']
+            self.assertEqual(len(images), 2)
+            for index, image in enumerate(images, start=1):
+                path = destination / f'camera_{index:05}_.webp'
+                self.assertEqual(self.read_meta(path)[1:], (prompt, workflow))
+                self.assertEqual(image['type'], 'temp')
+                self.assertEqual((preview / image['subfolder'] / image['filename']).read_bytes(), path.read_bytes())
+            self.assertEqual(fallback['ui']['images'], [
+                {'filename': 'camera_00000_.webp', 'subfolder': '', 'type': 'output'},
+            ])
+            self.assertEqual(list(default_output.iterdir()), [default_output / 'camera_00000_.webp'])
+
+    def test_relative_output_directory_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'absolute folder path'):
+            self.saver.save_webp([Tensor()], output_directory='relative/folder')
+
     def test_actual_tensor_geometry_after_resize(self):
         p=base();p['resize']=n('ImageScale',image=['decode',0],width=999,height=888,upscale_method='nearest-exact',crop='disabled')
         p['save']['inputs']['images']=['resize',0]
@@ -109,6 +147,7 @@ class SaveFormatTests(unittest.TestCase):
     def test_public_interface_unchanged_and_package_import(self):
         types=self.saver.INPUT_TYPES()
         self.assertEqual(list(types['required']),['images','filename_prefix','file_format','quality'])
+        self.assertEqual(types['optional']['output_directory'][1]['default'], '')
         self.assertEqual(types['hidden'],{'id':'UNIQUE_ID','prompt':'PROMPT','extra_pnginfo':'EXTRA_PNGINFO'})
         self.assertEqual(types['required']['quality'][1]['default'],70)
         root=Path(__file__).resolve().parents[1]
