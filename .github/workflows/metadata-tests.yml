@@ -51,26 +51,3 @@ jobs:
           path: ${{ runner.temp }}/metadata-test-result.json
           if-no-files-found: error
           retention-days: 14
-  release-v1-2-2:
-    needs: tests
-    if: github.repository == 'ukr8b3g-cmyk/ComfyUI-save-webp-meta-node' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-      actions: write
-    concurrency:
-      group: authorized-save-webp-release-v1.2.2
-      cancel-in-progress: false
-    env:
-      GH_TOKEN: ${{ github.token }}
-      PYTHONDONTWRITEBYTECODE: '1'
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12'
-      - name: Release only the authorized v1.2.2 source after both test gates
-        run: python -B tools/release_v1_2_2.py
