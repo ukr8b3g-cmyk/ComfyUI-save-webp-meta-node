@@ -87,17 +87,17 @@ ComfyUI restore metadata includes:
 
 ## Installation
 
-Search for "Save WEBP Meta" in ComfyUI Manager.
+Search for **Save WEBP Meta** in ComfyUI Manager. Manager reads `requirements.txt` to install `piexif` with the node.
 <img width="1009" height="209" alt="1782109385-gYfI3MLQbFzCJqK51dVHnopE" src="https://github.com/user-attachments/assets/3c608696-fe24-4ee5-811f-fb2fa6ad5408" />
 
-or
+For a manual Git install, clone the repository into `custom_nodes`.
 
 ```bash
 cd /path/to/ComfyUI/custom_nodes
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-save-webp-meta-node save_webp_meta
 ```
 
-1. Place `ComfyUI/custom_nodes/save_webp_meta` in the right folder.
+1. [Install `piexif`](#install-piexif-manually) with the Python that runs ComfyUI.
 2. Restart ComfyUI.
 3. Check the node list for `Save WEBP Meta` under `image/save`.
 
@@ -112,13 +112,15 @@ Zip install:
 3. Extract the ZIP file.
 4. Rename the extracted folder to `save_webp_meta`.
 5. Move it into `ComfyUI/custom_nodes/`.
-6. Restart ComfyUI.
+6. [Install `piexif`](#install-piexif-manually).
+7. Restart ComfyUI.
 
 Manual file install:
 
 1. Create `ComfyUI/custom_nodes/save_webp_meta/`.
 2. Copy the repository files into that folder.
-3. Restart ComfyUI.
+3. [Install `piexif`](#install-piexif-manually).
+4. Restart ComfyUI.
 
 ### Update
 
@@ -165,15 +167,25 @@ Required:
 
 - ComfyUI
 - Pillow
-- piexif
+- `piexif` 1.1.3 or later
 - numpy
 - torch
 
-Install `piexif` inside the ComfyUI Python environment if needed:
+### Install piexif manually
+
+Open a terminal in the Save WEBP Meta node folder. Run this command using the Python environment that runs ComfyUI.
 
 ```bash
-python -m pip install piexif
+python -m pip install -r requirements.txt
 ```
+
+For **ComfyUI Windows Portable**, open PowerShell in the folder containing `python_embeded` and `ComfyUI`, then run this command.
+
+```powershell
+.\python_embeded\python.exe -s -m pip install -r ".\ComfyUI\custom_nodes\save_webp_meta\requirements.txt"
+```
+
+If the node folder has a different name, use its actual name in the path. Restart ComfyUI after installing the dependency.
 
 Check format support:
 
@@ -192,11 +204,7 @@ Check dependencies:
 python -c "from PIL import features; import piexif; print('webp', features.check('webp')); print('avif', features.check('avif')); print('piexif ok')"
 ```
 
-If `piexif` is missing:
-
-```bash
-python -m pip install piexif
-```
+If you see `piexif is required to write EXIF metadata`, follow the [manual installation steps](#install-piexif-manually).
 
 If `webp` is `False`, install or update Pillow in the ComfyUI Python environment:
 
@@ -370,15 +378,25 @@ SD Prompt Reader などのプロンプトリーダーと、ComfyUI へのドラ�
 
 - ComfyUI
 - Pillow
-- piexif
+- `piexif` 1.1.3 以降
 - numpy
 - torch
 
-`piexif` が入っていない場合は、ComfyUI の Python 環境でインストールしてください。
+### piexif の手動インストール
+
+Save WEBP Meta のノードフォルダーでターミナルを開き、ComfyUI が使う Python 環境で次のコマンドを実行します。
 
 ```bash
-python -m pip install piexif
+python -m pip install -r requirements.txt
 ```
+
+**ComfyUI Windows Portable** では、`python_embeded` と `ComfyUI` が並ぶフォルダーを開き、そこで PowerShell を起動して次のコマンドを実行します。
+
+```powershell
+.\python_embeded\python.exe -s -m pip install -r ".\ComfyUI\custom_nodes\save_webp_meta\requirements.txt"
+```
+
+ノードフォルダー名が異なる場合は、コマンド内の `save_webp_meta` を実際の名前に置き換えてください。インストール後に ComfyUI を再起動します。
 
 形式対応の確認:
 
@@ -397,11 +415,7 @@ python -c "from PIL import features; print('webp', features.check('webp')); prin
 python -c "from PIL import features; import piexif; print('webp', features.check('webp')); print('avif', features.check('avif')); print('piexif ok')"
 ```
 
-`piexif` がない場合:
-
-```bash
-python -m pip install piexif
-```
+`piexif is required to write EXIF metadata` が出た場合は、[手動インストール手順](#piexif-の手動インストール)に従ってください。
 
 `webp` が `False` の場合は、ComfyUI の Python 環境で Pillow を更新してください。
 
@@ -457,12 +471,16 @@ python -m pip install -U Pillow
 
 ## インストール
 
+ComfyUI Manager で **Save WEBP Meta** を検索してインストールします。Manager は `requirements.txt` を読み取り、ノードと一緒に `piexif` をインストールします。
+
+Git で手動導入する場合は、`custom_nodes` にクローンします。
+
 ```bash
 cd /path/to/ComfyUI/custom_nodes
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-save-webp-meta-node save_webp_meta
 ```
 
-1. `ComfyUI/custom_nodes/save_webp_meta` に配置します。
+1. ComfyUI が使う Python で [`piexif` をインストール](#piexif-の手動インストール)します。
 2. ComfyUI を再起動します。
 3. ノード一覧の `image/save` に `Save WEBP Meta` が表示されることを確認します。
 
@@ -477,13 +495,15 @@ ZIP でインストールする場合:
 3. ZIP ファイルを展開します。
 4. 展開したフォルダ名を `save_webp_meta` に変更します。
 5. `ComfyUI/custom_nodes/` に移動します。
-6. ComfyUI を再起動します。
+6. [`piexif` をインストール](#piexif-の手動インストール)します。
+7. ComfyUI を再起動します。
 
 手動でファイルを配置する場合:
 
 1. `ComfyUI/custom_nodes/save_webp_meta/` を作成します。
 2. リポジトリ内のファイルをそのフォルダにコピーします。
-3. ComfyUI を再起動します。
+3. [`piexif` をインストール](#piexif-の手動インストール)します。
+4. ComfyUI を再起動します。
 
 ### アップデート方法
 
